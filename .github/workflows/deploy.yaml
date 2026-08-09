@@ -58,13 +58,16 @@ jobs:
           touch dist/.nojekyll
 
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v6
 
+      # v4 of this action stopped bundling dotfiles, which would quietly drop
+      # the .nojekyll written above — hence v5 and the explicit opt-in.
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: './dist'
+          include-hidden-files: true
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
