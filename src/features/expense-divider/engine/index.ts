@@ -29,4 +29,4 @@ export { toCents, fromCents, largestRemainder } from "./money";
 export { computeOwed, deriveWeights } from "./split";
 export { computeBalances } from "./balances";
 export { simplifyDebts } from "./settle";
-export { expenseSchema, validateExpense } from "./validate";
+export { PERCENT_TOLERANCE, expenseSchema, validateExpense } from "./validate";

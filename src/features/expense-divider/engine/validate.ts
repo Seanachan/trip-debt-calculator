@@ -25,7 +25,12 @@ export const expenseSchema = z.object({
   createdAt: z.number(),
 });
 
-const PERCENT_TOLERANCE = 0.01;
+/**
+ * Slack allowed when checking that percent splits sum to 100. Wide enough to
+ * absorb float error from one-decimal (0.1-point) percentages, narrow enough
+ * that a genuinely mis-entered split still fails.
+ */
+export const PERCENT_TOLERANCE = 0.01;
 
 /**
  * Validate an expense's shape and business rules against a known member

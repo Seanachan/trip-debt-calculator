@@ -11,6 +11,7 @@ import type {
 import {
   CURRENCIES,
   CURRENCY_CODES,
+  PERCENT_TOLERANCE,
   convert,
   formatMoney,
   fromMinor,
@@ -149,6 +150,28 @@ function initials(name: string): string {
 /** Minor units -> a clean decimal string for prefilling a text input. */
 function formatMajor(minor: number, code: CurrencyCode): string {
   return fromMinor(minor, code).toFixed(CURRENCIES[code].decimals);
+}
+
+/**
+ * Percent splits carry one decimal place, i.e. 0.1-point granularity. All the
+ * percent arithmetic runs on integer tenths so a generated split still sums to
+ * exactly 100 (three people -> 33.4 / 33.3 / 33.3, not 34 / 33 / 33).
+ */
+const PERCENT_TENTHS = 1000;
+
+/** Integer tenths-of-a-point -> display string, dropping a trailing ".0". */
+function formatPercent(tenths: number): string {
+  return String(tenths / 10);
+}
+
+/** Round an already-percentage number onto the 0.1-point grid, for display. */
+function roundPercent(pct: number): number {
+  return Math.round(pct * 10) / 10;
+}
+
+/** Distribute 100% across `weights` as one-decimal strings summing to 100. */
+function percentSplitStrings(weights: number[]): string[] {
+  return largestRemainder(PERCENT_TENTHS, weights).map(formatPercent);
 }
 
 type ViewName = "overview" | "activity" | "people" | "settle";
@@ -759,12 +782,12 @@ const AppScreen = ({
 
   const openAddExpense = () => {
     const memberIds = members.map((m) => m.id);
-    const pcts = largestRemainder(100, memberIds.map(() => 1));
+    const pcts = percentSplitStrings(memberIds.map(() => 1));
     const included: Record<string, boolean> = {};
     const pctMap: Record<string, string> = {};
     memberIds.forEach((id, i) => {
       included[id] = true;
-      pctMap[id] = String(pcts[i]);
+      pctMap[id] = pcts[i];
     });
     setEditingExpenseId(null);
     setDDesc("");
@@ -812,9 +835,9 @@ const AppScreen = ({
         if (method === "equal") return 1;
         return p?.value ?? 0;
       });
-      const pcts = largestRemainder(100, weights);
+      const pcts = percentSplitStrings(weights);
       includedIds.forEach((id, i) => {
-        pctMap[id] = String(pcts[i]);
+        pctMap[id] = pcts[i];
       });
       setDMode("pct");
     }
@@ -843,7 +866,9 @@ const AppScreen = ({
   };
 
   const setPctValue = (id: string, raw: string) => {
-    const cleaned = raw.replace(/[^0-9.]/g, "");
+    // Digits only, at most one dot, at most one digit after it — the input
+    // grid is 0.1 points, so anything finer is dropped as it is typed.
+    const cleaned = raw.replace(/[^0-9.]/g, "").replace(/^(\d*\.?\d?).*$/, "$1");
     setDPct((prev) => ({ ...prev, [id]: cleaned }));
   };
 
@@ -866,11 +891,11 @@ const AppScreen = ({
         return next;
       });
     } else {
-      const pcts = largestRemainder(100, ids.map(() => 1));
+      const pcts = percentSplitStrings(ids.map(() => 1));
       setDPct((prev) => {
         const next = { ...prev };
         ids.forEach((id, i) => {
-          next[id] = String(pcts[i]);
+          next[id] = pcts[i];
         });
         return next;
       });
@@ -911,7 +936,9 @@ const AppScreen = ({
     splitEntries.length > 0 &&
     (dMode === "amount"
       ? Math.abs(splitTotal - dAmountNumber) < 0.01
-      : Math.round(splitTotal) === 100);
+      // Same tolerance the engine validates with, so a split the button
+      // accepts can never be rejected on save.
+      : Math.abs(splitTotal - 100) <= PERCENT_TOLERANCE);
 
   const convertHintText = (() => {
     if (dCur === baseCurrency) {
@@ -932,7 +959,7 @@ const AppScreen = ({
 
   const amtTrailing = (amt: number): string => {
     if (!(dAmountNumber > 0) || amt <= 0) return "—";
-    return `${Math.round((amt / dAmountNumber) * 100)}%`;
+    return `${roundPercent((amt / dAmountNumber) * 100)}%`;
   };
 
   const handleSaveExpense = async () => {
@@ -1500,9 +1527,7 @@ const AppScreen = ({
                             toMinor(dAmountNumber, dCur),
                             dCur,
                           )}${splitValid ? " ✓" : ""}`
-                        : `${splitTotal % 1 === 0 ? splitTotal.toFixed(0) : splitTotal.toFixed(1)}%${
-                            splitValid ? " ✓" : ""
-                          }`}
+                        : `${roundPercent(splitTotal)}%${splitValid ? " ✓" : ""}`}
                     </span>
                   </div>
                 </div>
