@@ -469,6 +469,66 @@
   color: var(--ink);
 }
 
+/* invite row — the room code is the shared secret, so it has to be reachable
+   without digging it out of the address bar */
+.tdt-invite {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 2px dashed var(--cement);
+}
+
+.tdt-invite-code {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tdt-invite-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--cement-text);
+}
+
+.tdt-invite-value {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+}
+
+.tdt-invite-btn {
+  flex: none;
+  background: transparent;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  color: var(--brick);
+  padding: 6px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tdt-invite-btn:active {
+  background: var(--ink);
+  color: var(--sign);
+}
+
+.tdt-invite-fallback {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 9px;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--sign);
+  border: 2px solid var(--cement);
+  border-radius: 2px;
+}
+
 .tdt-error-banner {
   margin: 12px 20px 0;
   padding: 10px 14px;

@@ -618,6 +618,37 @@ const AppScreen = ({
       });
   }, [groupId, loading, group, settlement, isSettled, setSettled, identity]);
 
+  // invite — the 6-char room code IS the shared secret, so the link is the invite.
+  // BASE_URL is already `/trip-debt-calculator/` here (this app is served as a
+  // Pages project site under that path), so the group id appends directly to it;
+  // naming the path segment again would double the prefix. Built from BASE_URL +
+  // origin rather than location.href so it stays correct when the app was reached
+  // through the bare auto-resume path.
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const inviteUrl = new URL(
+    `${import.meta.env.BASE_URL}${groupId}`,
+    window.location.origin,
+  ).toString();
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const handleCopyInvite = async () => {
+    setCopyFailed(false);
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+    } catch {
+      // clipboard needs a secure context and can still be denied — show the
+      // link so it can be copied by hand rather than failing silently
+      setCopyFailed(true);
+    }
+  };
+
   if (loading) {
     return (
       <div className="tdt-page">
@@ -1055,6 +1086,24 @@ const AppScreen = ({
               </div>
             </div>
           </div>
+
+          <div className="tdt-invite">
+            <div className="tdt-invite-code">
+              <span className="tdt-invite-label tdt-mono">房間代碼</span>
+              <span className="tdt-invite-value tdt-mono">{groupId}</span>
+            </div>
+            <button type="button" className="tdt-invite-btn tdt-mono" onClick={handleCopyInvite}>
+              {copied ? "已複製 ✓" : "複製邀請連結"}
+            </button>
+          </div>
+          {copyFailed && (
+            <input
+              className="tdt-invite-fallback tdt-mono"
+              readOnly
+              value={inviteUrl}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+          )}
         </div>
 
         {error && <div className="tdt-error-banner">{error}</div>}
