@@ -25,6 +25,17 @@ export interface Person {
   color?: string;
 }
 
+/**
+ * A spend bucket, owned and editable by the group (see `categories.ts` for the
+ * seed list). `id` is what an expense stores and must never be reused for a
+ * different bucket; `label`/`icon` are display-only and free to rename.
+ */
+export interface Category {
+  id: string;
+  label: string;
+  icon: string;
+}
+
 export type SplitMethod = "equal" | "exact" | "percent" | "shares";
 
 export interface SplitParticipant {
@@ -44,6 +55,11 @@ export interface Expense {
   currency: CurrencyCode;
   /** Single payer. */
   paidBy: PersonId;
+  /**
+   * `Category.id` from the group's list. Absent — or pointing at a category
+   * the group has since deleted — reads as uncategorised in the totals.
+   */
+  category?: string;
   split: {
     method: SplitMethod;
     participants: SplitParticipant[];

@@ -1,6 +1,6 @@
 // Firestore-backed group/expense operations for live multiplayer trip-debt
 // groups. Document layout:
-//   groups/{groupId}                      { name, baseCurrency, createdAt }
+//   groups/{groupId}                      { name, baseCurrency, categories, createdAt }
 //   groups/{groupId}/members/{personId}   { name, color }
 //   groups/{groupId}/expenses/{expenseId} <engine Expense minus id>
 
@@ -8,6 +8,7 @@ import {
   addDoc,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -17,7 +18,8 @@ import {
   updateDoc,
   type Firestore,
 } from "firebase/firestore";
-import type { CurrencyCode, Expense, Person } from "../engine";
+import type { Category, CurrencyCode, Expense, Person } from "../engine";
+import { DEFAULT_CATEGORIES } from "../engine";
 import { PALETTE } from "../constants";
 import { db, ensureAuth } from "./config";
 import { recordTripMembership } from "./memberships";
@@ -106,6 +108,7 @@ export async function createGroup({
   await setDoc(groupDoc(groupId), {
     name,
     baseCurrency,
+    categories: DEFAULT_CATEGORIES,
     createdAt: serverTimestamp(),
   });
   await setDoc(
@@ -184,6 +187,19 @@ export async function removeMember(groupId: string, id: string): Promise<void> {
 }
 
 /**
+ * Replace the group's category list wholesale. Categories are a single array
+ * field rather than a subcollection: the list is short, always read in full,
+ * and reordering/renaming it as one document write keeps every device's copy
+ * consistent without a second listener.
+ */
+export async function updateGroupCategories(
+  groupId: string,
+  categories: Category[],
+): Promise<void> {
+  await updateDoc(groupDoc(groupId), { categories });
+}
+
+/**
  * Stamps `createdAt` here rather than at the call site so an edit can never
  * rewrite it (expenses are ordered by `createdAt`). A client clock is used
  * instead of `serverTimestamp()` because `expenseFromDoc` expects a number and
@@ -197,12 +213,22 @@ export async function addExpense(
   return ref.id;
 }
 
+/**
+ * `undefined` in the patch means "clear this field" (an expense whose category
+ * or icon was removed). Firestore rejects a literal `undefined` value, so those
+ * keys are translated to `deleteField()` rather than silently dropped — dropping
+ * them would leave the old value in place and the edit would look ignored.
+ */
 export async function updateExpense(
   groupId: string,
   id: string,
   patch: Partial<Omit<Expense, "id">>,
 ): Promise<void> {
-  await updateDoc(expenseDoc(groupId, id), { ...patch });
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    body[key] = value === undefined ? deleteField() : value;
+  }
+  await updateDoc(expenseDoc(groupId, id), body);
 }
 
 export async function deleteExpense(groupId: string, id: string): Promise<void> {

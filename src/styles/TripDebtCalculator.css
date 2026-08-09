@@ -1271,6 +1271,156 @@
   }
 }
 
+/* ============ Categories (picker + end-of-trip rollup) ============ */
+
+.tdt-catpick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tdt-cat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tdt-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tdt-cat-chip--active {
+  background: var(--brick);
+  border-color: var(--brick);
+  color: var(--sign-lit);
+}
+
+.tdt-cat-chip--add {
+  border-style: dashed;
+  border-color: var(--brick);
+  color: var(--brick);
+}
+
+.tdt-cat-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--sign-shade);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 10px;
+}
+
+.tdt-cat-editor-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tdt-cat-icon-btn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  line-height: 1;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.tdt-cat-icon-btn--active {
+  border-color: var(--brick);
+  outline: 2px solid var(--brick);
+  outline-offset: 1px;
+}
+
+.tdt-cat-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tdt-cat-editor-row .tdt-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.tdt-cat-save {
+  flex: none;
+  background: var(--brick);
+  border: 2px solid var(--ink);
+  color: var(--sign-lit);
+  border-radius: 2px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tdt-cat-save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tdt-cat-list,
+.tdt-cat-manage-list,
+.tdt-cat-manage-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tdt-cat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 13px 15px;
+}
+
+.tdt-cat-row-head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+/* A rule of spend, read left to right like the balance bars above it. */
+.tdt-cat-bar {
+  height: 12px;
+  background: var(--sign-shade);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tdt-cat-bar-fill {
+  height: 100%;
+  background: var(--brick);
+}
+
+.tdt-cat-delete {
+  width: 100%;
+}
+
+.tdt-cat-hint {
+  margin-top: 0;
+}
+
 /* ============================================================
    台南街頭 type treatment
    Headings and labels take the sign-painter face; amounts stay in

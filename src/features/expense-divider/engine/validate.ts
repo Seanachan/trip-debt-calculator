@@ -17,6 +17,9 @@ export const expenseSchema = z.object({
   amount: z.number().int().positive(),
   currency: currencyCodeSchema,
   paidBy: z.string().min(1),
+  // Not checked against the group's category list: a category deleted after
+  // the fact leaves a dangling id, and that must not make the expense invalid.
+  category: z.string().min(1).optional(),
   split: z.object({
     method: z.enum(["equal", "exact", "percent", "shares"]),
     participants: z.array(splitParticipantSchema).min(1),

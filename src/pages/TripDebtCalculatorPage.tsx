@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
+  Category,
   CurrencyCode,
   Expense,
   Person,
@@ -16,10 +17,11 @@ import {
   formatMoney,
   fromMinor,
   largestRemainder,
+  newCategoryId,
   toMinor,
   validateExpense,
 } from "../features/expense-divider/engine";
-import { ICONS } from "../features/expense-divider/constants";
+import { CATEGORY_ICONS, ICONS } from "../features/expense-divider/constants";
 import {
   firebaseReady,
   onAccountChange,
@@ -174,12 +176,13 @@ function percentSplitStrings(weights: number[]): string[] {
   return largestRemainder(PERCENT_TENTHS, weights).map(formatPercent);
 }
 
-type ViewName = "overview" | "activity" | "people" | "settle";
+type ViewName = "overview" | "activity" | "categories" | "people" | "settle";
 type SplitInputMode = "pct" | "amount";
 
 const NAV_ITEMS: { key: ViewName; label: string; icon: string }[] = [
   { key: "overview", label: "餘額", icon: "⚖️" },
   { key: "activity", label: "帳目", icon: "🧾" },
+  { key: "categories", label: "分類", icon: "🏷️" },
   { key: "people", label: "成員", icon: "👥" },
   { key: "settle", label: "結算", icon: "💸" },
 ];
@@ -555,13 +558,16 @@ const AppScreen = ({
     baseCurrency,
     members,
     expenses,
+    categories,
     balances,
     settlement,
+    categoryTotals,
     rates,
     loading,
     error,
     isSettled,
     setSettled,
+    updateCategories,
     addMember,
     updateMember,
     removeMember,
@@ -609,7 +615,16 @@ const AppScreen = ({
   const [dPct, setDPct] = useState<Record<string, string>>({});
   const [dAmt, setDAmt] = useState<Record<string, string>>({});
   const [dIncluded, setDIncluded] = useState<Record<string, boolean>>({});
+  const [dCategory, setDCategory] = useState<string | undefined>(undefined);
   const [expenseErrors, setExpenseErrors] = useState<string[]>([]);
+
+  // Inline "new category" row inside the expense sheet, and the rename/add
+  // editor on the 分類 view. Both write through `updateCategories`.
+  const [newCatOpen, setNewCatOpen] = useState(false);
+  const [newCatLabel, setNewCatLabel] = useState("");
+  const [newCatIcon, setNewCatIcon] = useState(CATEGORY_ICONS[0]);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
 
   // person modal
   const [personModalOpen, setPersonModalOpen] = useState(false);
@@ -778,6 +793,122 @@ const AppScreen = ({
     0,
   );
 
+  // ---------- category handlers ----------
+
+  const categoryOf = (id: string | undefined): Category | undefined =>
+    id === undefined ? undefined : categories.find((c) => c.id === id);
+
+  const closeNewCategoryRow = () => {
+    setNewCatOpen(false);
+    setNewCatLabel("");
+    setNewCatIcon(CATEGORY_ICONS[0]);
+    setEditingCategoryId(null);
+    setCategoryError(null);
+  };
+
+  const openNewCategoryRow = () => {
+    setEditingCategoryId(null);
+    setNewCatLabel("");
+    setNewCatIcon(CATEGORY_ICONS[0]);
+    setCategoryError(null);
+    setNewCatOpen(true);
+  };
+
+  const openRenameCategory = (category: Category) => {
+    setEditingCategoryId(category.id);
+    setNewCatLabel(category.label);
+    setNewCatIcon(category.icon);
+    setCategoryError(null);
+    setNewCatOpen(true);
+  };
+
+  /**
+   * Commits the inline editor. Adding also selects the new category in the
+   * expense sheet — the only reason to add one mid-entry is to use it. Renaming
+   * keeps the id, so expenses already filed under it follow the new name.
+   */
+  const handleSaveCategory = async () => {
+    const label = newCatLabel.trim();
+    if (!label) return;
+    const clash = categories.some((c) => c.id !== editingCategoryId && c.label === label);
+    if (clash) {
+      setCategoryError(`已經有一個叫「${label}」的分類了。`);
+      return;
+    }
+
+    const id = editingCategoryId ?? newCategoryId();
+    const next = editingCategoryId
+      ? categories.map((c) => (c.id === editingCategoryId ? { ...c, label, icon: newCatIcon } : c))
+      : [...categories, { id, label, icon: newCatIcon }];
+
+    try {
+      await updateCategories(next);
+      if (!editingCategoryId) setDCategory(id);
+      closeNewCategoryRow();
+    } catch (err) {
+      setCategoryError(err instanceof Error ? err.message : "儲存分類失敗，請再試一次。");
+    }
+  };
+
+  /**
+   * Removing a category leaves any expense filed under it pointing at an id
+   * that no longer resolves, which the rollup reads as 未分類 — deliberately,
+   * so deleting a bucket never silently rewrites the expenses inside it.
+   */
+  const handleDeleteCategory = async (id: string) => {
+    setCategoryError(null);
+    try {
+      await updateCategories(categories.filter((c) => c.id !== id));
+      if (dCategory === id) setDCategory(undefined);
+      closeNewCategoryRow();
+    } catch (err) {
+      setCategoryError(err instanceof Error ? err.message : "刪除分類失敗，請再試一次。");
+    }
+  };
+
+  // Shared by the expense sheet and the 分類 view — only one of the two can be
+  // open at a time, since both drive the same `newCat*` state.
+  const categoryEditor = (
+    <div className="tdt-cat-editor">
+      <div className="tdt-cat-editor-icons">
+        {CATEGORY_ICONS.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            aria-label={`圖示 ${emoji}`}
+            aria-pressed={newCatIcon === emoji}
+            className={`tdt-cat-icon-btn ${
+              newCatIcon === emoji ? "tdt-cat-icon-btn--active" : ""
+            }`}
+            onClick={() => setNewCatIcon(emoji)}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+      <div className="tdt-cat-editor-row">
+        <input
+          className="tdt-input"
+          value={newCatLabel}
+          onChange={(e) => setNewCatLabel(e.target.value)}
+          placeholder="分類名稱"
+          maxLength={12}
+        />
+        <button type="button" className="tdt-btn-ghost-sm" onClick={closeNewCategoryRow}>
+          取消
+        </button>
+        <button
+          type="button"
+          className="tdt-cat-save"
+          disabled={!newCatLabel.trim()}
+          onClick={() => void handleSaveCategory()}
+        >
+          {editingCategoryId ? "儲存" : "新增"}
+        </button>
+      </div>
+    </div>
+  );
+
   // ---------- expense modal handlers ----------
 
   const openAddExpense = () => {
@@ -804,6 +935,8 @@ const AppScreen = ({
     setDPct(pctMap);
     setDAmt({});
     setDIncluded(included);
+    setDCategory(undefined);
+    closeNewCategoryRow();
     setExpenseErrors([]);
     setExpenseModalOpen(true);
   };
@@ -850,6 +983,8 @@ const AppScreen = ({
     setDPct(pctMap);
     setDAmt(amtMap);
     setDIncluded(included);
+    setDCategory(expense.category);
+    closeNewCategoryRow();
     setExpenseErrors([]);
     setExpenseModalOpen(true);
   };
@@ -984,6 +1119,7 @@ const AppScreen = ({
       currency: dCur,
       icon,
       paidBy: dPayer,
+      category: dCategory,
       split: {
         method: dMode === "amount" ? "exact" : "percent",
         participants,
@@ -1232,6 +1368,7 @@ const AppScreen = ({
                 <div className="tdt-activity-list">
                   {expenses.map((e) => {
                     const baseMinor = convert(e.amount, e.currency, baseCurrency, rates);
+                    const cat = categoryOf(e.category);
                     return (
                       <div
                         className="tdt-row tdt-row--clickable"
@@ -1242,6 +1379,7 @@ const AppScreen = ({
                         <div className="tdt-row-info">
                           <div className="tdt-row-name">{e.description}</div>
                           <div className="tdt-row-sub">
+                            {cat ? `${cat.icon} ${cat.label} · ` : ""}
                             {nameOf(e.paidBy)} 付款 · {e.split.participants.length} 人分攤
                           </div>
                         </div>
@@ -1260,6 +1398,102 @@ const AppScreen = ({
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {view === "categories" && (
+            <div className="tdt-view">
+              <div className="tdt-section-head">
+                <div className="tdt-section-title tdt-mono">各分類支出</div>
+                <div className="tdt-section-count tdt-mono">
+                  {formatMoney(totalSpentMinor, baseCurrency)}
+                </div>
+              </div>
+
+              {categoryTotals.length === 0 ? (
+                <div className="tdt-empty-gray">
+                  還沒有任何支出。
+                  <br />
+                  記一筆並選個分類,這裡就會列出行程花費的去向。
+                </div>
+              ) : (
+                <div className="tdt-cat-list">
+                  {categoryTotals.map((row) => (
+                    <div className="tdt-cat-row" key={row.category.id}>
+                      <div className="tdt-cat-row-head">
+                        <div className="tdt-icon-box">{row.category.icon}</div>
+                        <div className="tdt-row-info">
+                          <div className="tdt-row-name">{row.category.label}</div>
+                          <div className="tdt-row-sub">{row.count} 筆支出</div>
+                        </div>
+                        <div className="tdt-activity-amounts">
+                          <div className="tdt-activity-amount tdt-mono">
+                            {formatMoney(row.total, baseCurrency)}
+                          </div>
+                          <div className="tdt-activity-amount-base tdt-mono">
+                            {roundPercent(row.share)}%
+                          </div>
+                        </div>
+                      </div>
+                      <div className="tdt-cat-bar">
+                        <div
+                          className="tdt-cat-bar-fill"
+                          style={{ width: `${row.share}%` }}
+                          role="presentation"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="tdt-section-head">
+                <div className="tdt-section-title tdt-mono">管理分類</div>
+                <div className="tdt-section-count tdt-mono">{categories.length} 項</div>
+              </div>
+              <div className="tdt-cat-manage-list">
+                {categories.map((c) => (
+                  <div className="tdt-row" key={c.id}>
+                    <div className="tdt-icon-box">{c.icon}</div>
+                    <div className="tdt-row-info">
+                      <div className="tdt-row-name">{c.label}</div>
+                      <div className="tdt-row-sub">
+                        {expenses.filter((e) => e.category === c.id).length} 筆支出
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="tdt-btn-ghost-sm"
+                      onClick={() => openRenameCategory(c)}
+                    >
+                      編輯
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {newCatOpen ? (
+                <div className="tdt-cat-manage-editor">
+                  {categoryEditor}
+                  {editingCategoryId && (
+                    <button
+                      type="button"
+                      className="tdt-btn-danger-outline tdt-cat-delete"
+                      onClick={() => void handleDeleteCategory(editingCategoryId)}
+                    >
+                      刪除此分類
+                    </button>
+                  )}
+                  <div className="tdt-hint tdt-cat-hint">
+                    刪除分類不會動到支出本身,原本歸在這裡的支出會變成「未分類」。
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="tdt-btn-dashed-gold" onClick={openNewCategoryRow}>
+                  + 新增分類
+                </button>
+              )}
+              {categoryError && <div className="tdt-error-banner">{categoryError}</div>}
             </div>
           )}
 
@@ -1442,6 +1676,36 @@ const AppScreen = ({
                     ))}
                   </select>
                 </label>
+
+                <div className="tdt-catpick">
+                  <span className="tdt-field-label tdt-mono">分類</span>
+                  <div className="tdt-cat-chips">
+                    {categories.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={`tdt-cat-chip ${
+                          dCategory === c.id ? "tdt-cat-chip--active" : ""
+                        }`}
+                        // Tapping the selected chip clears it — an expense is
+                        // allowed to have no category.
+                        onClick={() => setDCategory(dCategory === c.id ? undefined : c.id)}
+                      >
+                        <span aria-hidden>{c.icon}</span>
+                        {c.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="tdt-cat-chip tdt-cat-chip--add"
+                      onClick={openNewCategoryRow}
+                    >
+                      ＋ 新增分類
+                    </button>
+                  </div>
+                  {newCatOpen && categoryEditor}
+                  {categoryError && <div className="tdt-error-text">{categoryError}</div>}
+                </div>
 
                 <div className="tdt-split">
                   <div className="tdt-split-head">

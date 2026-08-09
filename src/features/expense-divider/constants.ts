@@ -31,5 +31,25 @@ export const ICONS = [
   "🎁",
 ];
 
+/** Emoji offered when a group names its own spend category. */
+export const CATEGORY_ICONS = [
+  "🍽️",
+  "🏨",
+  "🚕",
+  "🎟️",
+  "🛒",
+  "📦",
+  "☕",
+  "🍹",
+  "🏖️",
+  "⛽",
+  "🎁",
+  "💊",
+  "🧺",
+  "📶",
+  "🎫",
+  "🛶",
+];
+
 export { CURRENCIES, CURRENCY_CODES } from "./engine/currency";
 export type { CurrencyCode, CurrencyMeta } from "./engine/currency";

@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Balance, CurrencyCode, Expense, Person, RateMap, Settlement } from "../engine";
-import { computeBalances, simplifyDebts, STATIC_RATES } from "../engine";
+import type {
+  Balance,
+  Category,
+  CategoryTotal,
+  CurrencyCode,
+  Expense,
+  Person,
+  RateMap,
+  Settlement,
+} from "../engine";
+import {
+  computeBalances,
+  computeCategoryTotals,
+  DEFAULT_CATEGORIES,
+  simplifyDebts,
+  STATIC_RATES,
+} from "../engine";
 import { fetchRates } from "../rates";
 import { firebaseReady } from "../firebase/config";
 import {
@@ -10,6 +25,7 @@ import {
   removeMember as removeMemberFromGroup,
   subscribeGroup,
   updateExpense as updateExpenseInGroup,
+  updateGroupCategories,
   updateMember as updateMemberInGroup,
 } from "../firebase/groups";
 import {
@@ -30,8 +46,12 @@ export interface UseExpenseGroupResult {
   baseCurrency: CurrencyCode;
   members: Person[];
   expenses: Expense[];
+  /** The group's spend categories; falls back to `DEFAULT_CATEGORIES`. */
+  categories: Category[];
   balances: Balance[];
   settlement: Settlement[];
+  /** Spend per category in `baseCurrency`, biggest first, uncategorised last. */
+  categoryTotals: CategoryTotal[];
   /** Live `code → value-in-USD` FX rates (starts at STATIC_RATES, swaps in live on fetch). */
   rates: RateMap;
   loading: boolean;
@@ -40,6 +60,8 @@ export interface UseExpenseGroupResult {
   /** Whether this settlement row has been ticked off as actually paid. */
   isSettled: (row: Settlement) => boolean;
   setSettled: (row: Settlement, settled: boolean, settledBy: string) => Promise<void>;
+  /** Replaces the whole list — add/rename/remove all go through this. */
+  updateCategories: (categories: Category[]) => Promise<void>;
   addMember: (name: string) => Promise<string>;
   updateMember: (id: string, patch: Partial<Omit<Person, "id">>) => Promise<void>;
   removeMember: (id: string) => Promise<void>;
@@ -131,12 +153,17 @@ export function useExpenseGroup(groupId: string | null): UseExpenseGroupResult {
     groupId && !firebaseReady ? "Firebase is not configured." : subscribeError;
 
   const baseCurrency = group?.baseCurrency ?? DEFAULT_BASE_CURRENCY;
+  const categories = group?.categories ?? DEFAULT_CATEGORIES;
 
   const balances = useMemo(
     () => computeBalances(members, expenses, baseCurrency, rates),
     [members, expenses, baseCurrency, rates],
   );
   const settlement = useMemo(() => simplifyDebts(balances), [balances]);
+  const categoryTotals = useMemo(
+    () => computeCategoryTotals(expenses, categories, baseCurrency, rates),
+    [expenses, categories, baseCurrency, rates],
+  );
 
   const isSettled = useCallback(
     (row: Settlement) => settledRowIds.has(settlementRowId(row)),
@@ -159,6 +186,16 @@ export function useExpenseGroup(groupId: string | null): UseExpenseGroupResult {
         throw new Error("Cannot add an expense without a group.");
       }
       return addExpenseToGroup(groupId, expense);
+    },
+    [groupId],
+  );
+
+  const updateCategories = useCallback(
+    (next: Category[]) => {
+      if (!groupId) {
+        throw new Error("Cannot update categories without a group.");
+      }
+      return updateGroupCategories(groupId, next);
     },
     [groupId],
   );
@@ -218,14 +255,17 @@ export function useExpenseGroup(groupId: string | null): UseExpenseGroupResult {
     baseCurrency,
     members,
     expenses,
+    categories,
     balances,
     settlement,
+    categoryTotals,
     rates,
     loading,
     error,
     firebaseReady,
     isSettled,
     setSettled,
+    updateCategories,
     addMember,
     updateMember,
     removeMember,

@@ -3,18 +3,43 @@
 // untyped document shape — everything past this module deals in engine
 // types.
 
-import type { Expense, Person, SplitMethod, SplitParticipant } from "../engine";
-import { isCurrencyCode, type CurrencyCode } from "../engine";
+import type { Category, Expense, Person, SplitMethod, SplitParticipant } from "../engine";
+import { DEFAULT_CATEGORIES, isCurrencyCode, type CurrencyCode } from "../engine";
 
 export interface GroupInfo {
   name: string;
   baseCurrency: CurrencyCode;
+  /** Never empty — groups written before categories existed read the defaults. */
+  categories: Category[];
+}
+
+function toCategory(raw: unknown): Category | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.id !== "string" || obj.id === "") return null;
+  return {
+    id: obj.id,
+    label: typeof obj.label === "string" ? obj.label : obj.id,
+    icon: typeof obj.icon === "string" ? obj.icon : "🏷️",
+  };
+}
+
+/**
+ * A group with no usable `categories` field falls back to the defaults rather
+ * than to an empty list: that covers groups created before this feature, and
+ * means the picker is never empty.
+ */
+function toCategories(raw: unknown): Category[] {
+  if (!Array.isArray(raw)) return DEFAULT_CATEGORIES;
+  const parsed = raw.map(toCategory).filter((c): c is Category => c !== null);
+  return parsed.length > 0 ? parsed : DEFAULT_CATEGORIES;
 }
 
 export function groupFromDoc(data: Record<string, unknown>): GroupInfo {
   return {
     name: typeof data.name === "string" ? data.name : "",
     baseCurrency: isCurrencyCode(data.baseCurrency) ? data.baseCurrency : "USD",
+    categories: toCategories(data.categories),
   };
 }
 
@@ -67,6 +92,8 @@ export function expenseFromDoc(id: string, data: Record<string, unknown>): Expen
     amount: typeof data.amount === "number" ? Math.round(data.amount) : 0,
     currency: isCurrencyCode(data.currency) ? data.currency : "USD",
     paidBy: typeof data.paidBy === "string" ? data.paidBy : "",
+    category:
+      typeof data.category === "string" && data.category !== "" ? data.category : undefined,
     split: {
       method: toSplitMethod(splitRaw.method),
       participants: toSplitParticipants(splitRaw.participants),
@@ -80,8 +107,8 @@ export function expenseFromDoc(id: string, data: Record<string, unknown>): Expen
  * Build the Firestore document body for an expense. Takes the fields needed
  * to create one (no `id` — Firestore assigns that via the document key, and
  * `updateExpense` uses a separate partial patch rather than this mapper).
- * Firestore rejects `undefined` field values, so `icon` is only assigned
- * when defined.
+ * Firestore rejects `undefined` field values, so `icon` and `category` are
+ * only assigned when defined.
  */
 export function expenseToDoc(expense: Omit<Expense, "id">): Record<string, unknown> {
   const out: Record<string, unknown> = {
@@ -94,5 +121,6 @@ export function expenseToDoc(expense: Omit<Expense, "id">): Record<string, unkno
     createdAt: expense.createdAt,
   };
   if (expense.icon !== undefined) out.icon = expense.icon;
+  if (expense.category !== undefined) out.category = expense.category;
   return out;
 }

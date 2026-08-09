@@ -1,6 +1,7 @@
 export type {
   PersonId,
   Cents,
+  Category,
   Person,
   SplitMethod,
   SplitParticipant,
@@ -8,6 +9,14 @@ export type {
   Balance,
   Settlement,
 } from "./types";
+
+export type { CategoryTotal } from "./categories";
+export {
+  DEFAULT_CATEGORIES,
+  UNCATEGORIZED,
+  computeCategoryTotals,
+  newCategoryId,
+} from "./categories";
 
 export type { CurrencyCode, CurrencyMeta, RateMap } from "./currency";
 export {
