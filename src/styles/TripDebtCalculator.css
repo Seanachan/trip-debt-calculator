@@ -1,0 +1,1297 @@
+/* Trip Debt Calculator — mobile-first "phone column" UI.
+   Class names ported from the approved design mockup (tdt- prefix, kebab-case).
+   Dressed in the 台南街頭 language of the rest of the site: cream ground, ink
+   rules, brick for actions, 鐵窗綠 for money owed to you. It is a tool, so it
+   stays quieter than the portfolio — plates and rules, no awnings. */
+
+.tdt-page * {
+  box-sizing: border-box;
+}
+
+.tdt-page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  background-color: var(--sign-shade);
+  color: var(--ink);
+}
+
+.tdt-page input,
+.tdt-page select,
+.tdt-page textarea {
+  font-family: inherit;
+}
+
+.tdt-page input::placeholder {
+  color: var(--cement-text);
+}
+
+.tdt-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tdt-scroll {
+  scrollbar-width: none;
+}
+
+.tdt-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+@keyframes tdtSheet {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes tdtFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tdtPop {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ============ Phone shell ============ */
+
+.tdt-phone {
+  width: 100%;
+  max-width: 440px;
+  min-height: 100vh;
+  background: var(--sign);
+  border-left: 2px solid var(--ink);
+  border-right: 2px solid var(--ink);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ============ Notice / loading screens ============ */
+
+.tdt-notice {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.tdt-notice-title {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* ============ Onboard ============ */
+
+.tdt-onboard {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 22px;
+  animation: tdtFade 0.4s ease;
+}
+
+.tdt-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 18px;
+}
+
+.tdt-account-name,
+.tdt-account-hint {
+  font-size: 12px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tdt-account-btn {
+  flex: none;
+  background: transparent;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.tdt-account-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tdt-past-trips {
+  padding-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tdt-past-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tdt-past-btn {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 12px 14px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.tdt-past-btn:hover {
+  background: var(--sign);
+}
+
+.tdt-past-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tdt-past-meta {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.tdt-onboard-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 26px;
+  padding: 40px 0;
+}
+
+.tdt-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tdt-kicker {
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--brick);
+}
+
+.tdt-hero-title {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.1;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.tdt-hero-sub {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+  max-width: 26ch;
+}
+
+.tdt-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--cement-text);
+  font-size: 12px;
+}
+
+.tdt-divider::before,
+.tdt-divider::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  background: var(--sign-shade);
+}
+
+/* ============ Cards & fields (reused across onboard + modals) ============ */
+
+.tdt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 20px;
+}
+
+.tdt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.tdt-field-label {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.tdt-input,
+.tdt-select {
+  background: var(--sign);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 13px 14px;
+  color: var(--ink);
+  font-size: 16px;
+  outline: none;
+  width: 100%;
+}
+
+/* used inside containers that already sit on --sign-lit (e.g. the bottom-sheet
+   body) — drops the field one step darker so it still reads as recessed. */
+.tdt-input--sunken,
+.tdt-select--sunken {
+  background: var(--sign-shade);
+}
+
+.tdt-input:focus,
+.tdt-select:focus {
+  border-color: var(--brick);
+}
+
+.tdt-btn-primary {
+  background: var(--brick);
+  color: var(--sign-lit);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--brick-deep);
+  border-radius: 2px;
+  padding: 15px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tdt-btn-primary:disabled {
+  background: var(--sign-shade);
+  color: var(--cement-text);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.tdt-btn-secondary {
+  background: transparent;
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 13px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tdt-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tdt-btn-outline-gold {
+  margin-top: 2px;
+  background: transparent;
+  border: 2px solid var(--ink);
+  color: var(--brick);
+  border-radius: 2px;
+  padding: 13px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tdt-btn-dashed-gold {
+  background: transparent;
+  border: 2px dashed var(--brick);
+  color: var(--brick);
+  border-radius: 2px;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tdt-btn-outline-gray {
+  background: transparent;
+  border: 2px solid var(--ink);
+  color: var(--ink-soft);
+  border-radius: 2px;
+  padding: 13px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.tdt-btn-ghost-sm {
+  background: transparent;
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tdt-btn-danger-outline {
+  flex: none;
+  background: transparent;
+  border: 2px solid var(--brick-deep);
+  color: var(--brick-deep);
+  border-radius: 2px;
+  padding: 15px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tdt-warning-text {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--brick-deep);
+  line-height: 1.5;
+}
+
+.tdt-error-text {
+  font-size: 13px;
+  color: var(--brick-deep);
+  line-height: 1.5;
+}
+
+/* ============ App header ============ */
+
+.tdt-header {
+  padding: 18px 20px 14px;
+  border-bottom: 3px solid var(--brick);
+  position: sticky;
+  top: 0;
+  background: var(--sign-lit);
+  z-index: 20;
+}
+
+.tdt-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tdt-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tdt-header-kicker {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brick);
+}
+
+.tdt-header-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tdt-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex: none;
+}
+
+.tdt-header-total-label {
+  font-size: 10px;
+  color: var(--cement-text);
+  letter-spacing: 0.1em;
+}
+
+.tdt-header-total-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.tdt-error-banner {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border: 2px solid var(--brick-deep);
+  border-radius: 2px;
+  background: rgba(166, 63, 49, 0.12);
+  color: var(--brick);
+  font-size: 13px;
+}
+
+/* ============ Scroll body ============ */
+
+.tdt-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px 120px;
+}
+
+.tdt-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: tdtFade 0.35s ease;
+}
+
+.tdt-view--settle {
+  gap: 18px;
+}
+
+.tdt-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  animation: tdtFade 0.35s ease;
+}
+
+.tdt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tdt-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tdt-section-title {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.tdt-section-count {
+  font-size: 11px;
+  color: var(--cement-text);
+}
+
+/* ============ Overview: your card ============ */
+
+.tdt-mycard {
+  border-radius: 2px;
+  padding: 20px;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+}
+
+.tdt-mycard--positive {
+  background: rgba(62, 125, 110, 0.16);
+  border-color: rgba(206, 184, 136, 0.4);
+}
+
+.tdt-mycard--negative {
+  background: rgba(166, 63, 49, 0.14);
+  border-color: var(--brick-deep);
+}
+
+.tdt-mycard-label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+
+.tdt-mycard-amount-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tdt-mycard-amount {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.tdt-mycard-amount--positive {
+  color: var(--brick);
+}
+
+.tdt-mycard-amount--negative {
+  color: var(--brick-deep);
+}
+
+.tdt-mycard-sub {
+  font-size: 14px;
+  color: var(--ink);
+  margin-top: 4px;
+}
+
+/* ============ Avatars ============ */
+
+.tdt-avatar {
+  border-radius: 50%;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: var(--sign-lit);
+}
+
+.tdt-avatar--md {
+  width: 38px;
+  height: 38px;
+  font-size: 14px;
+}
+
+.tdt-avatar--sm {
+  width: 34px;
+  height: 34px;
+  font-size: 13px;
+}
+
+.tdt-avatar--xs {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+}
+
+/* ============ Row primitives (balance / people / activity) ============ */
+
+.tdt-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 13px 15px;
+}
+
+.tdt-row--clickable {
+  cursor: pointer;
+}
+
+.tdt-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.tdt-row-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tdt-row-sub {
+  font-size: 12px;
+  color: var(--cement-text);
+}
+
+.tdt-row-amount {
+  font-size: 15px;
+  font-weight: 700;
+  text-align: right;
+  color: var(--cement-text);
+}
+
+.tdt-row-amount--positive {
+  color: var(--grille-text);
+}
+
+.tdt-row-amount--negative {
+  color: var(--brick);
+}
+
+/* ============ Settle preview (overview) ============ */
+
+.tdt-empty-gold {
+  border: 2px dashed var(--brick);
+  border-radius: 2px;
+  padding: 22px;
+  text-align: center;
+  color: var(--brick);
+  font-size: 14px;
+}
+
+.tdt-empty-gray {
+  border: 2px dashed var(--brick);
+  border-radius: 2px;
+  padding: 34px 20px;
+  text-align: center;
+  color: var(--cement-text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.tdt-settle-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tdt-settle-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.tdt-name-strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tdt-name-strong--grow {
+  flex: 1;
+}
+
+.tdt-arrow {
+  color: var(--brick);
+}
+
+.tdt-mono-strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* ============ Activity ============ */
+
+.tdt-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tdt-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 2px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  background: var(--grille-pale);
+}
+
+.tdt-activity-amounts {
+  text-align: right;
+  flex: none;
+}
+
+.tdt-activity-amount {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.tdt-activity-amount-base {
+  font-size: 11px;
+  color: var(--cement-text);
+}
+
+/* ============ People ============ */
+
+.tdt-people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ============ Settle ============ */
+
+.tdt-settle-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tdt-celebrate {
+  border: 2px dashed var(--brick);
+  border-radius: 2px;
+  padding: 30px 20px;
+  text-align: center;
+}
+
+.tdt-celebrate-emoji {
+  font-size: 34px;
+  margin-bottom: 8px;
+}
+
+.tdt-celebrate-title {
+  color: var(--brick);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.tdt-celebrate-sub {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.tdt-settle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.tdt-settle-row {
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 15px 16px;
+  opacity: 1;
+}
+
+.tdt-settle-row--done {
+  opacity: 0.5;
+}
+
+.tdt-settle-row-top {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.tdt-settle-row-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.tdt-settle-row-amount {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  flex: none;
+}
+
+.tdt-settle-toggle {
+  margin-top: 12px;
+  width: 100%;
+  border-radius: 2px;
+  padding: 11px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 2px solid var(--ink);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: default;
+}
+
+.tdt-settle-toggle--active {
+  border-color: transparent;
+  background: var(--brick);
+  color: var(--sign-lit);
+  cursor: pointer;
+}
+
+.tdt-settle-reset {
+  background: transparent;
+  border: 2px solid var(--ink);
+  color: var(--ink-soft);
+  border-radius: 2px;
+  padding: 11px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ============ FAB + bottom nav ============ */
+
+.tdt-fab {
+  position: absolute;
+  right: 20px;
+  bottom: 86px;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--brick);
+  color: var(--sign-lit);
+  border: none;
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 24px var(--brick);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 25;
+}
+
+.tdt-nav {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  background: var(--sign-lit);
+  border-top: 2px solid var(--ink);
+  padding: 8px 6px 12px;
+  z-index: 20;
+}
+
+.tdt-nav-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px;
+  color: var(--cement-text);
+}
+
+.tdt-nav-btn--active {
+  color: var(--brick);
+}
+
+.tdt-nav-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.tdt-nav-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+/* ============ Modals (shared) ============ */
+
+.tdt-modal-overlay-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.tdt-modal-overlay-wrap--center {
+  justify-content: center;
+  padding: 24px;
+}
+
+.tdt-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(36, 31, 28, 0.55);
+  animation: tdtFade 0.25s ease;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.tdt-sheet {
+  position: relative;
+  background: var(--sign-lit);
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+  border-top: 2px solid var(--ink);
+  max-height: 92%;
+  overflow-y: auto;
+  padding: 20px 20px 28px;
+  animation: tdtSheet 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.tdt-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.tdt-sheet-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.tdt-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--ink-soft);
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.tdt-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tdt-form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.tdt-field--grow {
+  flex: 1;
+}
+
+.tdt-field--currency {
+  width: 118px;
+}
+
+.tdt-hint {
+  font-size: 12px;
+  color: var(--cement-text);
+  margin-top: -6px;
+}
+
+/* ============ Split editor ============ */
+
+.tdt-split {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tdt-split-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tdt-chip-group {
+  display: flex;
+  gap: 6px;
+}
+
+.tdt-chip-btn {
+  background: transparent;
+  border: 2px solid var(--brick);
+  color: var(--brick);
+  border-radius: 2px;
+  padding: 5px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tdt-segmented {
+  display: flex;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.tdt-segmented-btn {
+  flex: 1;
+  border: none;
+  border-radius: 2px;
+  padding: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.tdt-segmented-btn--active {
+  background: var(--brick);
+  color: var(--sign-lit);
+}
+
+.tdt-split-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tdt-split-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 9px 12px;
+}
+
+.tdt-split-row--included {
+  border-color: var(--sign-shade);
+}
+
+.tdt-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+  flex: none;
+  cursor: pointer;
+  border: 2px solid var(--ink);
+  background: transparent;
+  color: var(--sign-lit);
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.tdt-check--checked {
+  background: var(--brick);
+}
+
+.tdt-split-row-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tdt-split-row-unit {
+  color: var(--cement-text);
+  font-size: 12px;
+  flex: none;
+}
+
+.tdt-split-row-input {
+  width: 74px;
+  text-align: right;
+  background: var(--sign);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 8px 9px;
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+  opacity: 1;
+}
+
+.tdt-split-row-input:disabled {
+  opacity: 0.4;
+}
+
+.tdt-split-row-trailing {
+  width: 60px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--ink-soft);
+  flex: none;
+}
+
+.tdt-split-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px;
+}
+
+.tdt-split-total-label {
+  font-size: 12px;
+  color: var(--cement-text);
+}
+
+.tdt-split-total-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--brick);
+}
+
+.tdt-split-total-value--valid {
+  color: var(--grille-text);
+}
+
+.tdt-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.tdt-modal-actions .tdt-btn-primary {
+  flex: 1;
+}
+
+/* ============ Person modal ============ */
+
+.tdt-person-card {
+  position: relative;
+  background: var(--sign-lit);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 22px;
+  animation: tdtPop 0.25s ease;
+  width: 100%;
+  max-width: 392px;
+  margin: 0 auto;
+}
+
+.tdt-person-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.tdt-person-actions .tdt-btn-primary {
+  flex: 1;
+}
+
+/* ============ Small screens ============ */
+
+@media (max-width: 380px) {
+  .tdt-hero-title {
+    font-size: 28px;
+  }
+}
+
+/* ============================================================
+   台南街頭 type treatment
+   Headings and labels take the sign-painter face; amounts stay in
+   the mono, because a number someone owes should read as measured.
+   ============================================================ */
+
+.tdt-hero-title,
+.tdt-header-title,
+.tdt-sheet-title,
+.tdt-notice-title,
+.tdt-celebrate-title {
+  font-family: var(--font-display-zh);
+  font-variation-settings: "wdth" 78;
+  font-weight: 900;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.tdt-hero-title {
+  font-size: 40px;
+  line-height: 0.95;
+}
+
+.tdt-celebrate-title {
+  color: var(--grille-text);
+}
+
+.tdt-kicker,
+.tdt-header-kicker,
+.tdt-section-title,
+.tdt-field-label,
+.tdt-mycard-label,
+.tdt-nav-label,
+.tdt-header-total-label {
+  font-family: var(--font-display-zh);
+  font-variation-settings: "wdth" 90;
+  font-weight: 700;
+}
+
+.tdt-mycard-amount,
+.tdt-header-total-value,
+.tdt-activity-amount,
+.tdt-settle-row-amount,
+.tdt-row-amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Avatars are enamel tags, cut square like the rest of the street. */
+.tdt-avatar {
+  border-radius: 2px;
+  border: 2px solid var(--ink);
+  /* Avatar fills come from a per-person pastel set in the page, so the
+     initial has to be ink to stay legible on all of them. */
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 88;
+}
+
+/* The FAB stays round: it is a button you press, not a plate you read. */
+.tdt-fab {
+  border: 2px solid var(--ink);
+}
+
+/* Focus has to be visible on every field, not just links. */
+.tdt-input:focus,
+.tdt-select:focus,
+.tdt-split-row-input:focus {
+  border-color: var(--brick);
+  outline: 2px solid var(--brick);
+  outline-offset: 1px;
+}
+
+.tdt-nav-btn--active {
+  color: var(--brick);
+}
+
+.tdt-nav-btn--active .tdt-nav-label {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}

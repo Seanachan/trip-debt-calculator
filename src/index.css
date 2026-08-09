@@ -1,0 +1,181 @@
+/* ============================================================
+   台南街頭 — design tokens
+   Surfaces borrowed from Tainan streets: hand-painted shop signs,
+   hand-bent iron window grilles (鐵窗花), red brick, washed cement.
+   ============================================================ */
+
+:root {
+  /* 招牌米 — signboard cream, the page ground */
+  --sign: #efe3c8;
+  --sign-lit: #fbf4e2;
+  --sign-shade: #e2d3b3;
+
+  /* 磚紅 — brick, the primary accent */
+  --brick: #a63f31;
+  --brick-deep: #7c2c22;
+  --brick-wash: rgba(166, 63, 49, 0.1);
+
+  /* 鐵窗綠 — iron grille paint */
+  --grille: #3e7d6e;
+  --grille-text: #2f6155; /* passes AA on --sign */
+  --grille-pale: #9cc4b2; /* aged, sun-bleached */
+  --grille-wash: rgba(62, 125, 110, 0.12);
+
+  /* 水泥 — cement */
+  --cement: #6e6a62;
+  --cement-text: #57534b; /* passes AA on --sign */
+  --cement-dark: #3c3833;
+
+  /* 墨 — ink */
+  --ink: #241f1c;
+  --ink-soft: #4a423c;
+
+  /* Typefaces: condensed painted-sign display, humanist body,
+     mono for measured values only, 宋體 for Chinese. */
+  --font-display: "Archivo", "Arial Narrow", Helvetica, sans-serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Latin from the condensed sign face, Chinese from the 宋體 signage face —
+     the browser picks per glyph. */
+  --font-display-zh: "Archivo", "Noto Serif TC", "PingFang TC",
+    "Microsoft JhengHei", sans-serif;
+  /* The trip-debt calculator's own UI is written in Chinese; these keep its
+     headings on the signage face instead of a system fallback. */
+  --font-zh: "Noto Serif TC", "Songti TC", "PingFang TC", "Microsoft JhengHei",
+    serif;
+
+  /* 洗石子 — washed-pebble speckle, laid over flat fills */
+  --tex-terrazzo: radial-gradient(
+      circle at 18% 24%,
+      rgba(0, 0, 0, 0.09) 0 1.4px,
+      transparent 1.8px
+    ),
+    radial-gradient(
+      circle at 68% 61%,
+      rgba(255, 255, 255, 0.16) 0 1.6px,
+      transparent 2px
+    ),
+    radial-gradient(
+      circle at 41% 82%,
+      rgba(0, 0, 0, 0.06) 0 1.2px,
+      transparent 1.6px
+    ),
+    radial-gradient(
+      circle at 88% 12%,
+      rgba(0, 0, 0, 0.07) 0 1.1px,
+      transparent 1.5px
+    );
+  --tex-terrazzo-size: 29px 29px, 37px 37px, 23px 23px, 43px 43px;
+
+  /* Rules: painted, never hairline-precise */
+  --rule-ink: 2px solid var(--ink);
+  --rule-brick: 3px solid var(--brick);
+
+  /* ---- Legacy dark tokens: still consumed by /trip-schedule only.
+     Do not use in new work. ---- */
+  --space-blue: #0a192f;
+  --space-light: #172a45;
+  --space-lighter: #233554;
+  --purdue-gold: #ceb888;
+  --purdue-muted: #b19b6e;
+  --text-white: #ffffff;
+  --text-gray-300: #d1d5db;
+  --text-gray-400: #9ca3af;
+  --text-gray-500: #6b7280;
+  --text-gray-600: #4b5563;
+
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  font-weight: 400;
+
+  color-scheme: light;
+  color: var(--ink);
+  background-color: var(--sign);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--sign);
+  overflow-x: hidden;
+}
+
+/* Display type is set condensed and heavy, the way a sign painter
+   fits a long name onto a narrow board. */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 80;
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Enamel plate — the shared button surface, like a screwed-on
+   sign plate rather than a soft UI pill. */
+button {
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 0.5rem 1rem;
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 88;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background-color: var(--sign-lit);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+button:hover {
+  background-color: var(--brick);
+  color: var(--sign-lit);
+}
+
+:where(a, button, [tabindex]):focus-visible {
+  outline: 3px solid var(--brick);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--brick);
+  font-weight: 500;
+  text-decoration-color: rgba(166, 63, 49, 0.35);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--brick-deep);
+  text-decoration-color: var(--brick);
+}
+
+::selection {
+  background-color: var(--brick);
+  color: var(--sign-lit);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

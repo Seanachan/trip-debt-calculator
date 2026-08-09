@@ -1,0 +1,70 @@
+// Pure data contracts for the expense-divider engine. No I/O, no framework deps.
+//
+// Minor-unit currency convention (read before touching amounts):
+//   - `Expense.amount` (and `exact`-split `SplitParticipant.value`) are
+//     integer minor units OF THAT EXPENSE'S OWN `currency` — e.g. 1050 means
+//     $10.50 for a USD expense but ¥1050 for a JPY expense (JPY has 0 minor
+//     digits). Never compare/sum raw `Expense.amount` across expenses with
+//     different currencies.
+//   - `Balance` and `Settlement` amounts are always integer minor units of
+//     the GROUP's `baseCurrency` (the `baseCurrency` argument passed to
+//     `computeBalances`), regardless of what currency each expense was
+//     entered in. `engine/currency.ts` (`convert`) is what bridges the two.
+
+import type { CurrencyCode } from "./currency";
+
+export type PersonId = string;
+
+/** Integer minor units of *some* currency. Never a float — see convention above. */
+export type Cents = number;
+
+export interface Person {
+  id: PersonId;
+  name: string;
+  /** Hex swatch for avatars/charts; from `PALETTE` in constants.ts. */
+  color?: string;
+}
+
+export type SplitMethod = "equal" | "exact" | "percent" | "shares";
+
+export interface SplitParticipant {
+  personId: PersonId;
+  /** exact=minor units of the expense's currency, percent=percentage points, shares=weight; ignored for "equal". */
+  value?: number;
+}
+
+export interface Expense {
+  id: string;
+  description: string;
+  /** Emoji tag for the expense, e.g. from `ICONS` in constants.ts. */
+  icon?: string;
+  /** Total amount, integer minor units OF `currency` below, > 0. */
+  amount: Cents;
+  /** Currency this expense was entered/paid in. */
+  currency: CurrencyCode;
+  /** Single payer. */
+  paidBy: PersonId;
+  split: {
+    method: SplitMethod;
+    participants: SplitParticipant[];
+  };
+  createdBy: PersonId;
+  /** Epoch ms. */
+  createdAt: number;
+}
+
+/** All amounts here are integer minor units of the group's `baseCurrency`. */
+export interface Balance {
+  personId: PersonId;
+  paid: Cents;
+  owed: Cents;
+  /** net = paid - owed. net > 0 means owed money; net < 0 means owes money. */
+  net: Cents;
+}
+
+/** `amount` is integer minor units of the group's `baseCurrency`. */
+export interface Settlement {
+  from: PersonId;
+  to: PersonId;
+  amount: Cents;
+}

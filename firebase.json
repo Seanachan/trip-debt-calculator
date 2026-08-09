@@ -1,0 +1,16 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "auth": {
+    "providers": {
+      "anonymous": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Trip Split",
+        "supportEmail": "seanachan.p@gmail.com",
+        "authorizedRedirectUris": ["https://seanachan.github.io"]
+      }
+    }
+  }
+}
