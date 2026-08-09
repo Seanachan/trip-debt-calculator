@@ -80,21 +80,21 @@ describe("computeOwed", () => {
     expect(Object.values(owed).reduce((a, b) => a + b, 0)).toBe(999);
   });
 
-  it("percent: honours one-decimal percentages as weights", () => {
+  it("percent: honours two-decimal percentages as weights", () => {
     const expense = baseExpense({
-      amount: 10000,
+      amount: 1000000,
       split: {
         method: "percent",
         participants: [
-          { personId: "A", value: 33.4 },
-          { personId: "B", value: 33.3 },
-          { personId: "C", value: 33.3 },
+          { personId: "A", value: 33.34 },
+          { personId: "B", value: 33.33 },
+          { personId: "C", value: 33.33 },
         ],
       },
     });
     const owed = computeOwed(expense);
-    expect(owed).toEqual({ A: 3340, B: 3330, C: 3330 });
-    expect(Object.values(owed).reduce((a, b) => a + b, 0)).toBe(10000);
+    expect(owed).toEqual({ A: 333400, B: 333300, C: 333300 });
+    expect(Object.values(owed).reduce((a, b) => a + b, 0)).toBe(1000000);
   });
 
   it("exact: returns given cents directly without renormalizing", () => {

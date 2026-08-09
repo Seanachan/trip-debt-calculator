@@ -30,8 +30,8 @@ export const expenseSchema = z.object({
 
 /**
  * Slack allowed when checking that percent splits sum to 100. Wide enough to
- * absorb float error from one-decimal (0.1-point) percentages, narrow enough
- * that a genuinely mis-entered split still fails.
+ * absorb float error from the UI's two-decimal (0.01-point) percentages, narrow
+ * enough that a genuinely mis-entered split still fails.
  */
 export const PERCENT_TOLERANCE = 0.01;
 

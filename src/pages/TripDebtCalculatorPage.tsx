@@ -155,26 +155,33 @@ function formatMajor(minor: number, code: CurrencyCode): string {
 }
 
 /**
- * Percent splits carry one decimal place, i.e. 0.1-point granularity. All the
- * percent arithmetic runs on integer tenths so a generated split still sums to
- * exactly 100 (three people -> 33.4 / 33.3 / 33.3, not 34 / 33 / 33).
+ * Percent splits carry two decimal places, i.e. 0.01-point granularity. All the
+ * percent arithmetic runs on integer steps of that grid, so a generated split
+ * sums to exactly 100 (three people -> 33.34 / 33.33 / 33.33, not 34 / 33 / 33).
+ * Changing `PERCENT_DECIMALS` re-grids the input, the maths and the display
+ * together — nothing below hardcodes the number of digits.
  */
-const PERCENT_TENTHS = 1000;
+const PERCENT_DECIMALS = 2;
+const PERCENT_STEPS_PER_POINT = 10 ** PERCENT_DECIMALS;
+const PERCENT_TOTAL_STEPS = 100 * PERCENT_STEPS_PER_POINT;
 
-/** Integer tenths-of-a-point -> display string, dropping a trailing ".0". */
-function formatPercent(tenths: number): string {
-  return String(tenths / 10);
+/** Integer grid steps -> display string, with no trailing zeros ("50", not "50.00"). */
+function formatPercent(steps: number): string {
+  return String(steps / PERCENT_STEPS_PER_POINT);
 }
 
-/** Round an already-percentage number onto the 0.1-point grid, for display. */
+/** Round an already-percentage number onto the grid, for display. */
 function roundPercent(pct: number): number {
-  return Math.round(pct * 10) / 10;
+  return Math.round(pct * PERCENT_STEPS_PER_POINT) / PERCENT_STEPS_PER_POINT;
 }
 
-/** Distribute 100% across `weights` as one-decimal strings summing to 100. */
+/** Distribute 100% across `weights` as on-grid strings summing to 100. */
 function percentSplitStrings(weights: number[]): string[] {
-  return largestRemainder(PERCENT_TENTHS, weights).map(formatPercent);
+  return largestRemainder(PERCENT_TOTAL_STEPS, weights).map(formatPercent);
 }
+
+/** Digits only, at most one dot, at most `PERCENT_DECIMALS` digits after it. */
+const PERCENT_INPUT_RE = new RegExp(`^(\\d*\\.?\\d{0,${PERCENT_DECIMALS}}).*$`);
 
 type ViewName = "overview" | "activity" | "categories" | "people" | "settle";
 type SplitInputMode = "pct" | "amount";
@@ -1001,9 +1008,8 @@ const AppScreen = ({
   };
 
   const setPctValue = (id: string, raw: string) => {
-    // Digits only, at most one dot, at most one digit after it — the input
-    // grid is 0.1 points, so anything finer is dropped as it is typed.
-    const cleaned = raw.replace(/[^0-9.]/g, "").replace(/^(\d*\.?\d?).*$/, "$1");
+    // Anything finer than the percent grid is dropped as it is typed.
+    const cleaned = raw.replace(/[^0-9.]/g, "").replace(PERCENT_INPUT_RE, "$1");
     setDPct((prev) => ({ ...prev, [id]: cleaned }));
   };
 
