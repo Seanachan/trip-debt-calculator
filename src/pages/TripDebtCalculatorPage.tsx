@@ -7,17 +7,22 @@ import type {
   Expense,
   Person,
   Settlement,
+  SplitMethod,
   SplitParticipant,
 } from "../features/expense-divider/engine";
 import {
   CURRENCIES,
   CURRENCY_CODES,
   PERCENT_TOLERANCE,
+  clampPercentInput,
   convert,
   formatMoney,
   fromMinor,
+  isEvenPercentSplit,
   largestRemainder,
   newCategoryId,
+  percentSplitStrings,
+  roundPercent,
   toMinor,
   validateExpense,
 } from "../features/expense-divider/engine";
@@ -153,35 +158,6 @@ function initials(name: string): string {
 function formatMajor(minor: number, code: CurrencyCode): string {
   return fromMinor(minor, code).toFixed(CURRENCIES[code].decimals);
 }
-
-/**
- * Percent splits carry two decimal places, i.e. 0.01-point granularity. All the
- * percent arithmetic runs on integer steps of that grid, so a generated split
- * sums to exactly 100 (three people -> 33.34 / 33.33 / 33.33, not 34 / 33 / 33).
- * Changing `PERCENT_DECIMALS` re-grids the input, the maths and the display
- * together — nothing below hardcodes the number of digits.
- */
-const PERCENT_DECIMALS = 2;
-const PERCENT_STEPS_PER_POINT = 10 ** PERCENT_DECIMALS;
-const PERCENT_TOTAL_STEPS = 100 * PERCENT_STEPS_PER_POINT;
-
-/** Integer grid steps -> display string, with no trailing zeros ("50", not "50.00"). */
-function formatPercent(steps: number): string {
-  return String(steps / PERCENT_STEPS_PER_POINT);
-}
-
-/** Round an already-percentage number onto the grid, for display. */
-function roundPercent(pct: number): number {
-  return Math.round(pct * PERCENT_STEPS_PER_POINT) / PERCENT_STEPS_PER_POINT;
-}
-
-/** Distribute 100% across `weights` as on-grid strings summing to 100. */
-function percentSplitStrings(weights: number[]): string[] {
-  return largestRemainder(PERCENT_TOTAL_STEPS, weights).map(formatPercent);
-}
-
-/** Digits only, at most one dot, at most `PERCENT_DECIMALS` digits after it. */
-const PERCENT_INPUT_RE = new RegExp(`^(\\d*\\.?\\d{0,${PERCENT_DECIMALS}}).*$`);
 
 type ViewName = "overview" | "activity" | "categories" | "people" | "settle";
 type SplitInputMode = "pct" | "amount";
@@ -1008,9 +984,7 @@ const AppScreen = ({
   };
 
   const setPctValue = (id: string, raw: string) => {
-    // Anything finer than the percent grid is dropped as it is typed.
-    const cleaned = raw.replace(/[^0-9.]/g, "").replace(PERCENT_INPUT_RE, "$1");
-    setDPct((prev) => ({ ...prev, [id]: cleaned }));
+    setDPct((prev) => ({ ...prev, [id]: clampPercentInput(raw) }));
   };
 
   const setAmtValue = (id: string, raw: string) => {
@@ -1092,10 +1066,37 @@ const AppScreen = ({
     return `≈ ${formatMoney(baseMinor, baseCurrency)}(${baseCurrency})`;
   })();
 
-  const pctTrailing = (pct: number): string => {
-    if (!(dAmountNumber > 0) || pct <= 0) return "—";
-    const minor = toMinor((dAmountNumber * pct) / 100, dCur);
-    return formatMoney(minor, dCur);
+  /**
+   * How this expense will be stored. An untouched 平均分 becomes "equal" rather
+   * than the percentages it generated: both total the same, but "equal" divides
+   * the money directly instead of dividing a ratio that was rounded onto the
+   * percent grid first, so the worst gap between two people drops from one grid
+   * step OF THE EXPENSE to one minor unit — NT$1.00 to NT$0.01 on a NT$10,000
+   * bill, and it stops scaling with the amount. Percentages keep their own path
+   * because 1/3 has no exact form on any decimal grid, however many digits.
+   */
+  const splitMethod: SplitMethod =
+    dMode === "amount"
+      ? "exact"
+      : isEvenPercentSplit(splitEntries.map((e) => e.value))
+        ? "equal"
+        : "percent";
+
+  // Per-row preview, distributed exactly the way the engine will distribute it
+  // on save — otherwise an even split previews the percent-derived NT$3,334.00
+  // and then stores NT$3,333.34.
+  const previewOwed = ((): Record<string, number> => {
+    const totalMinor = toMinor(dAmountNumber, dCur);
+    if (!(totalMinor > 0) || splitEntries.length === 0) return {};
+    const weights =
+      splitMethod === "equal" ? splitEntries.map(() => 1) : splitEntries.map((e) => e.value);
+    const shares = largestRemainder(totalMinor, weights);
+    return Object.fromEntries(splitEntries.map((e, i) => [e.personId, shares[i]]));
+  })();
+
+  const pctTrailing = (personId: string): string => {
+    const minor = previewOwed[personId];
+    return minor === undefined ? "—" : formatMoney(minor, dCur);
   };
 
   const amtTrailing = (amt: number): string => {
@@ -1108,10 +1109,17 @@ const AppScreen = ({
     setExpenseErrors([]);
 
     const amountMinor = toMinor(dAmountNumber, dCur);
-    const participants: SplitParticipant[] = splitEntries.map((e) => ({
-      personId: e.personId,
-      value: dMode === "amount" ? toMinor(e.value, dCur) : e.value,
-    }));
+
+    // "equal" ignores `value` entirely, and Firestore rejects an explicit
+    // undefined inside the nested split object — so omit the key outright.
+    const participants: SplitParticipant[] = splitEntries.map((e) =>
+      splitMethod === "equal"
+        ? { personId: e.personId }
+        : {
+            personId: e.personId,
+            value: dMode === "amount" ? toMinor(e.value, dCur) : e.value,
+          },
+    );
 
     const icon = editingExpenseId
       ? expenses.find((e) => e.id === editingExpenseId)?.icon
@@ -1126,10 +1134,7 @@ const AppScreen = ({
       icon,
       paidBy: dPayer,
       category: dCategory,
-      split: {
-        method: dMode === "amount" ? "exact" : "percent",
-        participants,
-      },
+      split: { method: splitMethod, participants },
       createdBy: identity.personId,
     };
 
@@ -1746,7 +1751,6 @@ const AppScreen = ({
                   <div className="tdt-split-rows">
                     {members.map((m) => {
                       const included = Boolean(dIncluded[m.id]);
-                      const pct = Number(dPct[m.id]) || 0;
                       const amt = Number(dAmt[m.id]) || 0;
                       return (
                         <div
@@ -1777,7 +1781,7 @@ const AppScreen = ({
                             inputMode="decimal"
                           />
                           <span className="tdt-split-row-trailing tdt-mono">
-                            {dMode === "amount" ? amtTrailing(amt) : pctTrailing(pct)}
+                            {dMode === "amount" ? amtTrailing(amt) : pctTrailing(m.id)}
                           </span>
                         </div>
                       );
