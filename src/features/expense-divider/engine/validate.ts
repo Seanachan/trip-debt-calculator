@@ -1,10 +1,17 @@
 import { z } from "zod";
 import type { Expense } from "./types";
 import { CURRENCY_CODES, type CurrencyCode } from "./currency";
+import { itemizedOwed } from "./items";
 
 const splitParticipantSchema = z.object({
   personId: z.string().min(1),
   value: z.number().optional(),
+});
+
+const splitItemSchema = z.object({
+  label: z.string(),
+  amount: z.number().int().positive(),
+  personIds: z.array(z.string().min(1)).min(1),
 });
 
 const currencyCodeSchema = z.enum(CURRENCY_CODES as [CurrencyCode, ...CurrencyCode[]]);
@@ -23,6 +30,7 @@ export const expenseSchema = z.object({
   split: z.object({
     method: z.enum(["equal", "exact", "percent", "shares"]),
     participants: z.array(splitParticipantSchema).min(1),
+    items: z.array(splitItemSchema).min(1).optional(),
   }),
   createdBy: z.string().min(1),
   createdAt: z.number(),
@@ -120,6 +128,48 @@ export function validateExpense(
   }
 
   // "equal": non-empty participants already guaranteed by schema (min 1).
+
+  const { items } = expense.split;
+  if (items !== undefined) {
+    if (method !== "exact") {
+      errors.push(`split items need method "exact", got "${method}"`);
+    }
+
+    let itemsTotal = 0;
+    items.forEach((item, i) => {
+      itemsTotal += item.amount;
+      const seenOnLine = new Set<string>();
+      for (const id of item.personIds) {
+        if (!memberSet.has(id)) {
+          errors.push(`item ${i + 1} person "${id}" is not a member`);
+        }
+        if (seenOnLine.has(id)) {
+          errors.push(`item ${i + 1} person "${id}" is duplicated`);
+        }
+        seenOnLine.add(id);
+      }
+    });
+    if (itemsTotal !== expense.amount) {
+      errors.push(`split items sum to ${itemsTotal}, expected ${expense.amount}`);
+    }
+
+    // The participants are what every money path reads, the lines are what the
+    // editor shows: if they disagree, someone sees one bill and pays another.
+    const fromItems = itemizedOwed(items, expense.paidBy);
+    for (const p of participants) {
+      const expected = fromItems[p.personId] ?? 0;
+      if (p.value !== expected) {
+        errors.push(
+          `participant "${p.personId}" value ${p.value} does not match its items (${expected})`,
+        );
+      }
+    }
+    for (const id of Object.keys(fromItems)) {
+      if (!seenIds.has(id)) {
+        errors.push(`item person "${id}" is missing from participants`);
+      }
+    }
+  }
 
   return errors;
 }

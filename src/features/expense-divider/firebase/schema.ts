@@ -3,7 +3,14 @@
 // untyped document shape — everything past this module deals in engine
 // types.
 
-import type { Category, Expense, Person, SplitMethod, SplitParticipant } from "../engine";
+import type {
+  Category,
+  Expense,
+  Person,
+  SplitItem,
+  SplitMethod,
+  SplitParticipant,
+} from "../engine";
 import { DEFAULT_CATEGORIES, isCurrencyCode, type CurrencyCode } from "../engine";
 
 export interface GroupInfo {
@@ -81,9 +88,33 @@ function toSplitParticipants(raw: unknown): SplitParticipant[] {
   return Array.isArray(raw) ? raw.map(toSplitParticipant) : [];
 }
 
+function toSplitItem(raw: unknown): SplitItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.amount !== "number" || !Array.isArray(obj.personIds)) return null;
+  return {
+    label: typeof obj.label === "string" ? obj.label : "",
+    amount: Math.round(obj.amount),
+    personIds: obj.personIds.filter((id): id is string => typeof id === "string"),
+  };
+}
+
+/**
+ * Lines are display-only — `participants` carries the money — so an unreadable
+ * list is dropped as a whole rather than half-kept: the expense then opens as
+ * the plain exact split it is stored as.
+ */
+function toSplitItems(raw: unknown): SplitItem[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const items = raw.map(toSplitItem);
+  return items.every((item): item is SplitItem => item !== null) ? items : undefined;
+}
+
 export function expenseFromDoc(id: string, data: Record<string, unknown>): Expense {
   const splitRaw =
     data.split && typeof data.split === "object" ? (data.split as Record<string, unknown>) : {};
+  const method = toSplitMethod(splitRaw.method);
+  const items = method === "exact" ? toSplitItems(splitRaw.items) : undefined;
 
   return {
     id,
@@ -95,8 +126,9 @@ export function expenseFromDoc(id: string, data: Record<string, unknown>): Expen
     category:
       typeof data.category === "string" && data.category !== "" ? data.category : undefined,
     split: {
-      method: toSplitMethod(splitRaw.method),
+      method,
       participants: toSplitParticipants(splitRaw.participants),
+      ...(items ? { items } : {}),
     },
     createdBy: typeof data.createdBy === "string" ? data.createdBy : "",
     createdAt: typeof data.createdAt === "number" ? data.createdAt : 0,
