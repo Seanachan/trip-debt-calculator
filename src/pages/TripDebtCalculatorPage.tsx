@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   Category,
   CurrencyCode,
@@ -225,12 +225,31 @@ interface DraftItem {
 // Page frame + notices
 // ============================================================================
 
-const Frame = ({ meta, children }: { meta?: ReactNode; children: ReactNode }) => (
+/**
+ * The brand goes to the trip list (`/new`), as 行程表's does. A bare `/` would
+ * not: it resumes the last trip, so from inside a trip it goes nowhere.
+ */
+const Frame = ({
+  meta,
+  action,
+  children,
+}: {
+  meta?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}) => (
   <div className="ts-page">
     <header className="ts-nav">
       <div className="ts-wrap ts-nav__inner">
-        <span className="ts-brand">旅行分帳</span>
-        {meta && <span className="ts-nav__meta">{meta}</span>}
+        <Link to={`/${ONBOARD_SEGMENT}`} className="ts-brand" title="所有行程">
+          旅行分帳
+        </Link>
+        {(meta || action) && (
+          <div className="ts-nav__end">
+            {meta && <span className="ts-nav__meta">{meta}</span>}
+            {action}
+          </div>
+        )}
       </div>
     </header>
     <main className="ts-wrap ts-main">{children}</main>
@@ -297,9 +316,17 @@ export const TripDebtCalculatorPage = () => {
       key={groupId}
       groupId={groupId}
       onNavigateOnboard={() => navigate(`/${ONBOARD_SEGMENT}`)}
+      onNewTrip={() => navigate(`/${ONBOARD_SEGMENT}`, { state: CREATE_INTENT })}
     />
   );
 };
+
+/**
+ * Router state for "開一趟新行程": the onboard screen then puts the create form
+ * above the trip list and focuses it. Without it `/new` is the trip list first,
+ * which is what the brand link wants.
+ */
+const CREATE_INTENT = { intent: "create" } as const;
 
 // ============================================================================
 // Onboard: create a trip, or join one by room code
@@ -313,6 +340,15 @@ interface PastTrip {
 }
 
 const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }) => {
+  const location = useLocation();
+  const wantsCreate =
+    (location.state as { intent?: string } | null)?.intent === CREATE_INTENT.intent;
+  const tripNameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (wantsCreate) tripNameRef.current?.focus();
+  }, [wantsCreate]);
+
   const [pastTrips, setPastTrips] = useState<PastTrip[] | null>(null);
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -455,6 +491,32 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
 
   const signedIn = account !== null && !account.anonymous;
 
+  const pastTripsBox = pastTrips && pastTrips.length > 0 && (
+    <Box label="你的行程" icon="buddy" labelId="past-trips">
+      <div className="ts-stack ts-stack--tight">
+        {pastTrips.map((trip) => (
+          <button
+            key={trip.code}
+            type="button"
+            className="ts-link ts-soft"
+            onClick={() => onNavigate(trip.code)}
+          >
+            <span className="ts-link__main">
+              <span className="ts-link__title">{trip.name}</span>
+              <span className="ts-small">
+                {trip.baseCurrency ? `${trip.baseCurrency} 結算 · ` : ""}房間{" "}
+                <span className="ts-num">{trip.code}</span>
+              </span>
+            </span>
+            <span className="ts-arrow" aria-hidden>
+              →
+            </span>
+          </button>
+        ))}
+      </div>
+    </Box>
+  );
+
   return (
     <Frame meta={signedIn ? (account.name ?? account.email) : undefined}>
       <div className="ts-hero">
@@ -493,37 +555,14 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
           {authError && <p className="ts-error">{authError}</p>}
         </div>
 
-        {pastTrips && pastTrips.length > 0 && (
-          <Box label="你的行程" icon="buddy" labelId="past-trips">
-            <div className="ts-stack ts-stack--tight">
-              {pastTrips.map((trip) => (
-                <button
-                  key={trip.code}
-                  type="button"
-                  className="ts-link ts-soft"
-                  onClick={() => onNavigate(trip.code)}
-                >
-                  <span className="ts-link__main">
-                    <span className="ts-link__title">{trip.name}</span>
-                    <span className="ts-small">
-                      {trip.baseCurrency ? `${trip.baseCurrency} 結算 · ` : ""}房間{" "}
-                      <span className="ts-num">{trip.code}</span>
-                    </span>
-                  </span>
-                  <span className="ts-arrow" aria-hidden>
-                    →
-                  </span>
-                </button>
-              ))}
-            </div>
-          </Box>
-        )}
+        {!wantsCreate && pastTripsBox}
 
         <Box label="開一趟新行程" icon="coin" labelId="create-trip">
           <form className="ts-stack" onSubmit={handleCreate}>
             <label className="ts-field">
               <span className="ts-field__name">行程名稱</span>
               <input
+                ref={tripNameRef}
                 className="ts-input ts-soft"
                 value={obTrip}
                 onChange={(e) => setObTrip(e.target.value)}
@@ -561,6 +600,8 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
             </div>
           </form>
         </Box>
+
+        {wantsCreate && pastTripsBox}
 
         <Box label="用房間代碼加入" icon="buddy" labelId="join-trip">
           <form className="ts-stack" onSubmit={handleJoin}>
@@ -605,9 +646,11 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
 const AppScreen = ({
   groupId,
   onNavigateOnboard,
+  onNewTrip,
 }: {
   groupId: string;
   onNavigateOnboard: () => void;
+  onNewTrip: () => void;
 }) => {
   const {
     group,
@@ -1803,7 +1846,7 @@ const AppScreen = ({
         </div>
       </Box>
       <div className="ts-row ts-row--end">
-        <button type="button" className="ts-btn ts-btn--text" onClick={onNavigateOnboard}>
+        <button type="button" className="ts-btn ts-btn--text" onClick={onNewTrip}>
           開一趟新行程
         </button>
       </div>
@@ -1999,6 +2042,11 @@ const AppScreen = ({
         <>
           房間 <span className="ts-nav__code">{groupId}</span>
         </>
+      }
+      action={
+        <button type="button" className="ts-btn ts-btn--sm ts-sticker" onClick={onNewTrip}>
+          ＋ 新行程
+        </button>
       }
     >
       <div className="ts-hero">
