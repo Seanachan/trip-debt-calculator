@@ -59,7 +59,10 @@ export interface SplitItem {
 export interface Expense {
   id: string;
   description: string;
-  /** Emoji tag for the expense, e.g. from `ICONS` in constants.ts. */
+  /**
+   * Emoji tag written by builds before the sticker UI. No longer set on new
+   * expenses or shown; kept so an edit does not strip it from old ones.
+   */
   icon?: string;
   /** Total amount, integer minor units OF `currency` below, > 0. */
   amount: Cents;

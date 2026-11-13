@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
   Category,
@@ -7,7 +7,7 @@ import type {
   Expense,
   Person,
   Settlement,
-  SplitMethod,
+  SplitItem,
   SplitParticipant,
 } from "../features/expense-divider/engine";
 import {
@@ -15,10 +15,13 @@ import {
   CURRENCY_CODES,
   PERCENT_TOLERANCE,
   clampPercentInput,
+  computeOwed,
   convert,
   formatMoney,
   fromMinor,
   isEvenPercentSplit,
+  itemizedOwed,
+  itemizedParticipants,
   largestRemainder,
   newCategoryId,
   percentSplitStrings,
@@ -26,7 +29,8 @@ import {
   toMinor,
   validateExpense,
 } from "../features/expense-divider/engine";
-import { CATEGORY_ICONS, ICONS } from "../features/expense-divider/constants";
+import { CATEGORY_ICONS } from "../features/expense-divider/constants";
+import { avatarChar, groupByDay } from "../features/expense-divider/display";
 import {
   firebaseReady,
   onAccountChange,
@@ -46,7 +50,18 @@ import {
   listJoinedGroupIds,
   saveIdentity,
 } from "../features/expense-divider/identity";
-import "../styles/TripDebtCalculator.css";
+import { Icon } from "../components/Icon";
+import { categoryLook, isBuiltInCategory, type IconName } from "../components/icons";
+import {
+  Avatars,
+  Box,
+  Buddy,
+  BuddyToggle,
+  CategoryMark,
+  CategoryTile,
+  type BuddyFace,
+} from "../components/Sticker";
+import "../styles/sticker.css";
 
 // ============================================================================
 // Local, page-owned persistence. Distinct from `identity.ts` (which the hook
@@ -148,40 +163,96 @@ function settlementKey(s: { from: string; to: string; amount: number }): string 
   return `${s.from}>${s.to}:${s.amount}`;
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  return (parts[0][0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
-}
-
 /** Minor units -> a clean decimal string for prefilling a text input. */
 function formatMajor(minor: number, code: CurrencyCode): string {
   return fromMinor(minor, code).toFixed(CURRENCIES[code].decimals);
 }
 
-type ViewName = "overview" | "activity" | "categories" | "people" | "settle";
-type SplitInputMode = "pct" | "amount";
+/** A balance with its sign spelled out: "+NT$860", "−NT$1,240". Never a bare "-". */
+function signedMoney(minor: number, code: CurrencyCode): string {
+  const abs = formatMoney(Math.abs(minor), code);
+  return minor > 0 ? `+${abs}` : minor < 0 ? `−${abs}` : abs;
+}
 
-const NAV_ITEMS: { key: ViewName; label: string; icon: string }[] = [
-  { key: "overview", label: "餘額", icon: "⚖️" },
-  { key: "activity", label: "帳目", icon: "🧾" },
-  { key: "categories", label: "分類", icon: "🏷️" },
-  { key: "people", label: "成員", icon: "👥" },
-  { key: "settle", label: "結算", icon: "💸" },
+function balanceKind(net: number): "owed" | "owe" | "zero" {
+  return net > 0 ? "owed" : net < 0 ? "owe" : "zero";
+}
+
+const BALANCE_WORD = { owed: "應收", owe: "應付", zero: "已結清" } as const;
+
+function clock(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Strip a typed amount down to digits and one dot. */
+function cleanAmount(raw: string): string {
+  return raw.replace(/[^0-9.]/g, "").replace(/^(\d*\.?\d*).*$/, "$1");
+}
+
+type ViewName = "overview" | "activity" | "categories" | "people" | "settle";
+
+const VIEWS: { key: ViewName; label: string }[] = [
+  { key: "overview", label: "餘額" },
+  { key: "activity", label: "帳目" },
+  { key: "categories", label: "分類" },
+  { key: "people", label: "旅伴" },
+  { key: "settle", label: "結算" },
 ];
 
-const Avatar = ({
-  name,
-  color,
-  size,
-}: {
-  name: string;
-  color?: string;
-  size: "md" | "sm" | "xs";
-}) => (
-  <div className={`tdt-avatar tdt-avatar--${size}`} style={{ background: color ?? "#888888" }}>
-    {initials(name)}
+/**
+ * The sheet's 怎麼分. `items` and `amount` both save as "exact" (items with its
+ * lines alongside); `pct` saves as "percent", or "equal" when left even.
+ */
+type SplitMode = "equal" | "items" | "amount" | "pct";
+
+const SPLIT_MODES: { key: SplitMode; label: string }[] = [
+  { key: "equal", label: "平分" },
+  { key: "items", label: "依項目" },
+  { key: "amount", label: "指定金額" },
+  { key: "pct", label: "比例" },
+];
+
+/** A 依項目 line while it is being typed; `key` is only for React. */
+interface DraftItem {
+  key: number;
+  label: string;
+  amount: string;
+  personIds: string[];
+}
+
+// ============================================================================
+// Page frame + notices
+// ============================================================================
+
+const Frame = ({ meta, children }: { meta?: ReactNode; children: ReactNode }) => (
+  <div className="ts-page">
+    <header className="ts-nav">
+      <div className="ts-wrap ts-nav__inner">
+        <span className="ts-brand">旅行分帳</span>
+        {meta && <span className="ts-nav__meta">{meta}</span>}
+      </div>
+    </header>
+    <main className="ts-wrap ts-main">{children}</main>
   </div>
+);
+
+const Notice = ({
+  icon = "buddy",
+  title,
+  children,
+}: {
+  icon?: IconName;
+  title: string;
+  children?: ReactNode;
+}) => (
+  <Frame>
+    <div className="ts-box ts-sticker ts-empty" role="status">
+      <Icon name={icon} size={48} />
+      <div className="ts-empty__title">{title}</div>
+      {children}
+    </div>
+  </Frame>
 );
 
 // ============================================================================
@@ -194,19 +265,16 @@ export const TripDebtCalculatorPage = () => {
 
   if (!firebaseReady) {
     return (
-      <div className="tdt-page">
-        <div className="tdt-notice">
-          <div className="tdt-notice-title">尚未設定</div>
-          <p>行程分帳功能目前尚未設定完成，請稍後再試。</p>
-        </div>
-      </div>
+      <Notice title="還沒設定好">
+        <p className="ts-body">記帳功能還沒設定完成，晚點再來看看。</p>
+      </Notice>
     );
   }
 
-  // `/new` is the escape hatch (used by "換一個行程"), not a room code: it forces
-  // the onboard screen instead of resuming. Room codes are always 6 uppercase
-  // alphanumerics (`generateRoomCode`), so "new" can never collide with a real
-  // one.
+  // `/new` is the escape hatch (used by "開一趟新行程"), not a room code: it
+  // forces the onboard screen instead of resuming. Room codes are always 6
+  // uppercase alphanumerics (`generateRoomCode`), so "new" can never collide
+  // with a real one.
   //
   // Every path below is router-relative. The `/trip-debt-calculator` prefix the
   // visitor sees comes from the BrowserRouter `basename` in main.tsx (this app
@@ -316,7 +384,7 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
-        setAuthError(err instanceof Error ? err.message : "登入失敗，請再試一次。");
+        setAuthError(err instanceof Error ? err.message : "登入失敗，再試一次看看。");
       }
     } finally {
       setAuthBusy(false);
@@ -361,7 +429,7 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
       writeLastGroupId(groupId);
       onNavigate(groupId);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "建立行程失敗，請再試一次。");
+      setCreateError(err instanceof Error ? err.message : "建立行程失敗，再試一次看看。");
     } finally {
       setCreating(false);
     }
@@ -379,154 +447,159 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
       writeLastGroupId(code);
       onNavigate(code);
     } catch (err) {
-      setJoinError(err instanceof Error ? err.message : "加入行程失敗，請確認房間代碼。");
+      setJoinError(err instanceof Error ? err.message : "加入失敗，確認一下房間代碼。");
     } finally {
       setJoining(false);
     }
   };
 
+  const signedIn = account !== null && !account.anonymous;
+
   return (
-    <div className="tdt-page">
-      <div className="tdt-phone">
-        <div className="tdt-onboard">
-          <div className="tdt-account">
-            {account && !account.anonymous ? (
-              <>
-                <span className="tdt-account-name">{account.name ?? account.email}</span>
-                <button
-                  type="button"
-                  className="tdt-account-btn"
-                  onClick={handleSignOut}
-                  disabled={authBusy}
-                >
-                  登出
-                </button>
-              </>
+    <Frame meta={signedIn ? (account.name ?? account.email) : undefined}>
+      <div className="ts-hero">
+        <h1 className="ts-h1">一起記帳，回家一鍵結清</h1>
+        <p className="ts-body">誰付了什麼、誰該給誰多少，旅伴打開同一個連結就看得到。</p>
+      </div>
+
+      <div className="ts-sections">
+        <div className="ts-stack ts-stack--tight">
+          <div className="ts-row ts-row--between">
+            <p className="ts-help">
+              {signedIn
+                ? "已登入，行程會跟著帳號走。"
+                : "行程只記在這台裝置上。用 Google 登入，換手機也找得到。"}
+            </p>
+            {signedIn ? (
+              <button
+                type="button"
+                className="ts-btn ts-btn--text"
+                onClick={handleSignOut}
+                disabled={authBusy}
+              >
+                登出
+              </button>
             ) : (
-              <>
-                <span className="tdt-account-hint">行程只存在這台裝置</span>
-                <button
-                  type="button"
-                  className="tdt-account-btn"
-                  onClick={handleSignIn}
-                  disabled={authBusy}
-                >
-                  {authBusy ? "登入中…" : "用 Google 登入以跨裝置"}
-                </button>
-              </>
+              <button
+                type="button"
+                className="ts-btn ts-btn--sm ts-sticker"
+                onClick={handleSignIn}
+                disabled={authBusy}
+              >
+                {authBusy ? "登入中…" : "用 Google 登入"}
+              </button>
             )}
           </div>
-          {authError && <p className="tdt-error-text">{authError}</p>}
-
-          {pastTrips && pastTrips.length > 0 && (
-            <div className="tdt-past-trips">
-              <div className="tdt-field-label tdt-mono">你的行程</div>
-              <ul className="tdt-past-list">
-                {pastTrips.map((trip) => (
-                  <li key={trip.code}>
-                    <button
-                      type="button"
-                      className="tdt-past-btn"
-                      onClick={() => onNavigate(trip.code)}
-                    >
-                      <span className="tdt-past-name">{trip.name}</span>
-                      <span className="tdt-past-meta tdt-mono">
-                        {trip.baseCurrency ? `${trip.baseCurrency} · ` : ""}
-                        {trip.code}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <div className="tdt-onboard-main">
-            <div className="tdt-hero">
-              <div className="tdt-kicker tdt-mono">記帳 · 分帳 · 結算</div>
-              <h1 className="tdt-hero-title">
-                公平分攤
-                <br />
-                每一筆旅行開銷。
-              </h1>
-              <p className="tdt-hero-sub">
-                旅途中隨手記帳、按百分比分攤,實時看清誰欠誰——回家後一鍵結清。
-              </p>
-            </div>
-
-            <form className="tdt-card" onSubmit={handleCreate}>
-              <label className="tdt-field">
-                <span className="tdt-field-label tdt-mono">行程名稱</span>
-                <input
-                  className="tdt-input tdt-input--sunken"
-                  value={obTrip}
-                  onChange={(e) => setObTrip(e.target.value)}
-                  placeholder="例如:泰國 2026"
-                />
-              </label>
-              <label className="tdt-field">
-                <span className="tdt-field-label tdt-mono">結算幣別(最後換算成)</span>
-                <select
-                  className="tdt-select tdt-select--sunken"
-                  value={obCur}
-                  onChange={(e) => setObCur(e.target.value as CurrencyCode)}
-                >
-                  {CURRENCY_CODES.map((code) => (
-                    <option key={code} value={code}>
-                      {CURRENCIES[code].label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="tdt-field">
-                <span className="tdt-field-label tdt-mono">你的名字</span>
-                <input
-                  className="tdt-input tdt-input--sunken"
-                  value={obMe}
-                  onChange={(e) => setObMe(e.target.value)}
-                  placeholder="你"
-                />
-              </label>
-              <button type="submit" className="tdt-btn-primary" disabled={creating}>
-                {creating ? "建立中…" : "開始行程 →"}
-              </button>
-              {createError && <p className="tdt-error-text">{createError}</p>}
-            </form>
-
-            <div className="tdt-divider">或</div>
-
-            <form className="tdt-card" onSubmit={handleJoin}>
-              <label className="tdt-field">
-                <span className="tdt-field-label tdt-mono">房間代碼</span>
-                <input
-                  className="tdt-input tdt-input--sunken"
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value)}
-                  placeholder="例如:AB12CD"
-                />
-              </label>
-              <label className="tdt-field">
-                <span className="tdt-field-label tdt-mono">你的名字</span>
-                <input
-                  className="tdt-input tdt-input--sunken"
-                  value={joinName}
-                  onChange={(e) => setJoinName(e.target.value)}
-                  placeholder="你"
-                />
-              </label>
-              <button type="submit" className="tdt-btn-secondary" disabled={joining}>
-                {joining ? "加入中…" : "加入行程 →"}
-              </button>
-              {joinError && <p className="tdt-error-text">{joinError}</p>}
-            </form>
-          </div>
+          {authError && <p className="ts-error">{authError}</p>}
         </div>
+
+        {pastTrips && pastTrips.length > 0 && (
+          <Box label="你的行程" icon="buddy" labelId="past-trips">
+            <div className="ts-stack ts-stack--tight">
+              {pastTrips.map((trip) => (
+                <button
+                  key={trip.code}
+                  type="button"
+                  className="ts-link ts-soft"
+                  onClick={() => onNavigate(trip.code)}
+                >
+                  <span className="ts-link__main">
+                    <span className="ts-link__title">{trip.name}</span>
+                    <span className="ts-small">
+                      {trip.baseCurrency ? `${trip.baseCurrency} 結算 · ` : ""}房間{" "}
+                      <span className="ts-num">{trip.code}</span>
+                    </span>
+                  </span>
+                  <span className="ts-arrow" aria-hidden>
+                    →
+                  </span>
+                </button>
+              ))}
+            </div>
+          </Box>
+        )}
+
+        <Box label="開一趟新行程" icon="coin" labelId="create-trip">
+          <form className="ts-stack" onSubmit={handleCreate}>
+            <label className="ts-field">
+              <span className="ts-field__name">行程名稱</span>
+              <input
+                className="ts-input ts-soft"
+                value={obTrip}
+                onChange={(e) => setObTrip(e.target.value)}
+                placeholder="例如：首爾・釜山 9 天"
+              />
+            </label>
+            <label className="ts-field">
+              <span className="ts-field__name">最後用哪個幣別結算</span>
+              <select
+                className="ts-select ts-soft"
+                value={obCur}
+                onChange={(e) => setObCur(e.target.value as CurrencyCode)}
+              >
+                {CURRENCY_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {CURRENCIES[code].label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="ts-field">
+              <span className="ts-field__name">你的名字</span>
+              <input
+                className="ts-input ts-soft"
+                value={obMe}
+                onChange={(e) => setObMe(e.target.value)}
+                placeholder="旅伴會看到這個名字"
+              />
+            </label>
+            {createError && <p className="ts-error">{createError}</p>}
+            <div className="ts-row ts-row--end">
+              <button type="submit" className="ts-btn ts-btn--primary ts-sticker" disabled={creating}>
+                {creating ? "建立中…" : "開始記帳"}
+              </button>
+            </div>
+          </form>
+        </Box>
+
+        <Box label="用房間代碼加入" icon="buddy" labelId="join-trip">
+          <form className="ts-stack" onSubmit={handleJoin}>
+            <label className="ts-field">
+              <span className="ts-field__name">房間代碼</span>
+              <input
+                className="ts-input ts-input--code ts-soft"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value)}
+                placeholder="6 碼，例如 AB12CD"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label className="ts-field">
+              <span className="ts-field__name">你的名字</span>
+              <input
+                className="ts-input ts-soft"
+                value={joinName}
+                onChange={(e) => setJoinName(e.target.value)}
+                placeholder="旅伴會看到這個名字"
+              />
+            </label>
+            {joinError && <p className="ts-error">{joinError}</p>}
+            <div className="ts-row ts-row--end">
+              <button type="submit" className="ts-btn ts-sticker" disabled={joining}>
+                {joining ? "加入中…" : "加入行程"}
+              </button>
+            </div>
+          </form>
+        </Box>
       </div>
-    </div>
+    </Frame>
   );
 };
 
 // ============================================================================
-// App shell: header + overview/activity/people/settle + FAB/nav + modals
+// App shell: header + 餘額/帳目/分類/旅伴/結算 + 記一筆 + sheets
 // ============================================================================
 
 const AppScreen = ({
@@ -561,6 +634,8 @@ const AppScreen = ({
 
   const [identity, setIdentity] = useState(() => getIdentity(groupId));
   const [view, setView] = useState<ViewName>("overview");
+  const [dayFilter, setDayFilter] = useState<string | null>(null);
+  const dayTabsRef = useRef<HTMLDivElement>(null);
 
   // Only remember a group once Firestore confirms it exists, otherwise opening
   // one bad room code would overwrite the good "last group" and strand the
@@ -587,17 +662,19 @@ const AppScreen = ({
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
 
-  // expense modal
+  // expense sheet
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [dDesc, setDDesc] = useState("");
   const [dAmount, setDAmount] = useState("");
   const [dCur, setDCur] = useState<CurrencyCode>(() => readLastCurrency(groupId) ?? baseCurrency);
   const [dPayer, setDPayer] = useState("");
-  const [dMode, setDMode] = useState<SplitInputMode>("pct");
+  const [dMode, setDMode] = useState<SplitMode>("equal");
   const [dPct, setDPct] = useState<Record<string, string>>({});
   const [dAmt, setDAmt] = useState<Record<string, string>>({});
   const [dIncluded, setDIncluded] = useState<Record<string, boolean>>({});
+  const [dItems, setDItems] = useState<DraftItem[]>([]);
+  const nextItemKey = useRef(0);
   const [dCategory, setDCategory] = useState<string | undefined>(undefined);
   const [expenseErrors, setExpenseErrors] = useState<string[]>([]);
 
@@ -609,7 +686,7 @@ const AppScreen = ({
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [categoryError, setCategoryError] = useState<string | null>(null);
 
-  // person modal
+  // person dialog
   const [personModalOpen, setPersonModalOpen] = useState(false);
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [pName, setPName] = useState("");
@@ -638,6 +715,26 @@ const AppScreen = ({
         migratedSettled.current = false;
       });
   }, [groupId, loading, group, settlement, isSettled, setSettled, identity]);
+
+  // Escape closes whichever sheet is open.
+  useEffect(() => {
+    if (!expenseModalOpen && !personModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setExpenseModalOpen(false);
+      setPersonModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expenseModalOpen, personModalOpen]);
+
+  // Day tabs run oldest → newest like the schedule's; start scrolled to the
+  // newest, which is the one being added to.
+  useEffect(() => {
+    if (view !== "activity") return;
+    const tabs = dayTabsRef.current;
+    if (tabs) tabs.scrollLeft = tabs.scrollWidth;
+  }, [view, expenses.length]);
 
   // invite — the 6-char room code IS the shared secret, so the link is the invite.
   // BASE_URL is already `/trip-debt-calculator/` here (this app is served as a
@@ -671,47 +768,37 @@ const AppScreen = ({
   };
 
   if (loading) {
-    return (
-      <div className="tdt-page">
-        <div className="tdt-phone">
-          <div className="tdt-notice">載入中…</div>
-        </div>
-      </div>
-    );
+    return <Notice title="載入中…" />;
   }
 
   if (!group && error) {
     return (
-      <div className="tdt-page">
-        <div className="tdt-phone">
-          <div className="tdt-notice">
-            <div className="tdt-notice-title">連線失敗</div>
-            <p>無法載入這個行程，請檢查網路後重試。</p>
-            <p className="tdt-error-text">{error}</p>
-            <button type="button" className="tdt-btn-primary" onClick={() => window.location.reload()}>
-              重試
-            </button>
-          </div>
-        </div>
-      </div>
+      <Notice title="連線失敗">
+        <p className="ts-body">這趟行程載入不了，檢查一下網路再試。</p>
+        <p className="ts-error">{error}</p>
+        <button
+          type="button"
+          className="ts-btn ts-btn--primary ts-sticker"
+          onClick={() => window.location.reload()}
+        >
+          重試
+        </button>
+      </Notice>
     );
   }
 
   if (!group) {
     return (
-      <div className="tdt-page">
-        <div className="tdt-phone">
-          <div className="tdt-notice">
-            <div className="tdt-notice-title">找不到這個行程</div>
-            <p>房間代碼可能有誤，或這個行程已經不存在了。</p>
-            <button type="button" className="tdt-btn-primary" onClick={onNavigateOnboard}>
-              重新輸入代碼 →
-            </button>
-          </div>
-        </div>
-      </div>
+      <Notice title="找不到這趟行程">
+        <p className="ts-body">房間代碼可能打錯了，或這趟行程已經不在了。</p>
+        <button type="button" className="ts-btn ts-btn--primary ts-sticker" onClick={onNavigateOnboard}>
+          重新輸入代碼
+        </button>
+      </Notice>
     );
   }
+
+  const tripName = group.name || "我的行程";
 
   if (!identity) {
     const handleJoinHere = async (e: FormEvent<HTMLFormElement>) => {
@@ -725,61 +812,71 @@ const AppScreen = ({
         writeLastGroupId(groupId);
         setIdentity({ personId, name });
       } catch (err) {
-        setJoinError(err instanceof Error ? err.message : "加入行程失敗，請再試一次。");
+        setJoinError(err instanceof Error ? err.message : "加入失敗，再試一次看看。");
       } finally {
         setJoining(false);
       }
     };
 
     return (
-      <div className="tdt-page">
-        <div className="tdt-phone">
-          <div className="tdt-onboard">
-            <div className="tdt-onboard-main">
-              <div className="tdt-hero">
-                <div className="tdt-kicker tdt-mono">加入行程</div>
-                <h1 className="tdt-hero-title">{group.name}</h1>
-                <p className="tdt-hero-sub">輸入你的名字以加入這個行程，開始記帳。</p>
-              </div>
-              <form className="tdt-card" onSubmit={handleJoinHere}>
-                <label className="tdt-field">
-                  <span className="tdt-field-label tdt-mono">你的名字</span>
-                  <input
-                    className="tdt-input tdt-input--sunken"
-                    value={joinName}
-                    onChange={(e) => setJoinName(e.target.value)}
-                    placeholder="你"
-                  />
-                </label>
-                <button type="submit" className="tdt-btn-primary" disabled={joining}>
-                  {joining ? "加入中…" : "加入行程 →"}
-                </button>
-                {joinError && <p className="tdt-error-text">{joinError}</p>}
-              </form>
-            </div>
-          </div>
+      <Frame>
+        <div className="ts-hero">
+          <h1 className="ts-h1">加入「{tripName}」</h1>
+          <p className="ts-body">
+            {members.length > 0
+              ? `${members.map((m) => m.name).join("、")} 已經在這趟行程裡了。`
+              : "填上名字就能一起記帳。"}
+          </p>
         </div>
-      </div>
+        <Box label="你是誰？" icon="buddy" labelId="join-here">
+          <form className="ts-stack" onSubmit={handleJoinHere}>
+            <label className="ts-field">
+              <span className="ts-field__name">你的名字</span>
+              <input
+                className="ts-input ts-soft"
+                value={joinName}
+                onChange={(e) => setJoinName(e.target.value)}
+                placeholder="旅伴會看到這個名字"
+                autoFocus
+              />
+            </label>
+            {joinError && <p className="ts-error">{joinError}</p>}
+            <div className="ts-row ts-row--end">
+              <button type="submit" className="ts-btn ts-btn--primary ts-sticker" disabled={joining}>
+                {joining ? "加入中…" : "加入行程"}
+              </button>
+            </div>
+          </form>
+        </Box>
+      </Frame>
     );
   }
 
   // ---- from here on `identity`, `group` are narrowed non-null ----
 
+  const me = identity.personId;
   const nameOf = (id: string): string => members.find((m) => m.id === id)?.name ?? "?";
 
+  /** How a buddy appears on this device: the device's own one reads 你. */
+  const faceOf = (id: string): BuddyFace => {
+    if (id === me) return { name: "你", char: "你" };
+    const name = nameOf(id);
+    return { name, char: avatarChar(name) };
+  };
+
   const myBalance =
-    balances.find((b) => b.personId === identity.personId) ??
-    ({ personId: identity.personId, paid: 0, owed: 0, net: 0 } as const);
+    balances.find((b) => b.personId === me) ??
+    ({ personId: me, paid: 0, owed: 0, net: 0 } as const);
 
   const totalSpentMinor = expenses.reduce(
     (sum, e) => sum + convert(e.amount, e.currency, baseCurrency, rates),
     0,
   );
 
-  // ---------- category handlers ----------
-
   const categoryOf = (id: string | undefined): Category | undefined =>
     id === undefined ? undefined : categories.find((c) => c.id === id);
+
+  // ---------- category handlers ----------
 
   const closeNewCategoryRow = () => {
     setNewCatOpen(false);
@@ -829,7 +926,7 @@ const AppScreen = ({
       if (!editingCategoryId) setDCategory(id);
       closeNewCategoryRow();
     } catch (err) {
-      setCategoryError(err instanceof Error ? err.message : "儲存分類失敗，請再試一次。");
+      setCategoryError(err instanceof Error ? err.message : "分類沒存成功，再試一次看看。");
     }
   };
 
@@ -845,64 +942,93 @@ const AppScreen = ({
       if (dCategory === id) setDCategory(undefined);
       closeNewCategoryRow();
     } catch (err) {
-      setCategoryError(err instanceof Error ? err.message : "刪除分類失敗，請再試一次。");
+      setCategoryError(err instanceof Error ? err.message : "分類沒刪成功，再試一次看看。");
     }
   };
 
   // Shared by the expense sheet and the 分類 view — only one of the two can be
-  // open at a time, since both drive the same `newCat*` state.
+  // open at a time, since both drive the same `newCat*` state. A seeded
+  // category's sticker icon is fixed, so only a group's own gets the picker.
+  const pickingIcon = editingCategoryId === null || !isBuiltInCategory(editingCategoryId);
   const categoryEditor = (
-    <div className="tdt-cat-editor">
-      <div className="tdt-cat-editor-icons">
-        {CATEGORY_ICONS.map((emoji) => (
-          <button
-            key={emoji}
-            type="button"
-            aria-label={`圖示 ${emoji}`}
-            aria-pressed={newCatIcon === emoji}
-            className={`tdt-cat-icon-btn ${
-              newCatIcon === emoji ? "tdt-cat-icon-btn--active" : ""
-            }`}
-            onClick={() => setNewCatIcon(emoji)}
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
-      <div className="tdt-cat-editor-row">
+    <div className="ts-inline-edit ts-soft">
+      {pickingIcon && (
+        <div className="ts-iconpick" role="group" aria-label="分類圖示">
+          {CATEGORY_ICONS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              className="ts-soft"
+              aria-label={`圖示 ${emoji}`}
+              aria-pressed={newCatIcon === emoji}
+              onClick={() => setNewCatIcon(emoji)}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+      <label className="ts-field">
+        <span className="ts-field__name">分類名稱</span>
         <input
-          className="tdt-input"
+          className="ts-input ts-soft"
           value={newCatLabel}
           onChange={(e) => setNewCatLabel(e.target.value)}
-          placeholder="分類名稱"
+          placeholder="例如：門票"
           maxLength={12}
         />
-        <button type="button" className="tdt-btn-ghost-sm" onClick={closeNewCategoryRow}>
-          取消
-        </button>
-        <button
-          type="button"
-          className="tdt-cat-save"
-          disabled={!newCatLabel.trim()}
-          onClick={() => void handleSaveCategory()}
-        >
-          {editingCategoryId ? "儲存" : "新增"}
-        </button>
+      </label>
+      {categoryError && <p className="ts-error">{categoryError}</p>}
+      <div className="ts-actions">
+        {editingCategoryId ? (
+          <button
+            type="button"
+            className="ts-btn ts-btn--text"
+            onClick={() => void handleDeleteCategory(editingCategoryId)}
+          >
+            刪除這個分類
+          </button>
+        ) : (
+          <span />
+        )}
+        <div className="ts-row">
+          <button type="button" className="ts-btn ts-btn--sm ts-sticker" onClick={closeNewCategoryRow}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="ts-btn ts-btn--sm ts-sticker"
+            disabled={!newCatLabel.trim()}
+            onClick={() => void handleSaveCategory()}
+          >
+            {editingCategoryId ? "儲存" : "新增"}
+          </button>
+        </div>
       </div>
+      {editingCategoryId && (
+        <p className="ts-help">刪掉分類不會動到支出，原本在這裡的會變成「未分類」。</p>
+      )}
     </div>
   );
 
-  // ---------- expense modal handlers ----------
+  // ---------- expense sheet: draft state ----------
+
+  const memberIds = members.map((m) => m.id);
+  const includedIds = memberIds.filter((id) => dIncluded[id]);
+
+  const newDraftItem = (personIds: string[]): DraftItem => ({
+    key: nextItemKey.current++,
+    label: "",
+    amount: "",
+    personIds,
+  });
+
+  const evenPct = (ids: string[]): Record<string, string> => {
+    const pcts = percentSplitStrings(ids.map(() => 1));
+    return Object.fromEntries(ids.map((id, i) => [id, pcts[i]]));
+  };
 
   const openAddExpense = () => {
-    const memberIds = members.map((m) => m.id);
-    const pcts = percentSplitStrings(memberIds.map(() => 1));
-    const included: Record<string, boolean> = {};
-    const pctMap: Record<string, string> = {};
-    memberIds.forEach((id, i) => {
-      included[id] = true;
-      pctMap[id] = pcts[i];
-    });
     setEditingExpenseId(null);
     setDDesc("");
     setDAmount("");
@@ -913,11 +1039,12 @@ const AppScreen = ({
         expenses[expenses.length - 1]?.currency ??
         baseCurrency,
     );
-    setDPayer(identity.personId);
-    setDMode("pct");
-    setDPct(pctMap);
+    setDPayer(me);
+    setDMode("equal");
+    setDIncluded(Object.fromEntries(memberIds.map((id) => [id, true])));
+    setDPct(evenPct(memberIds));
     setDAmt({});
-    setDIncluded(included);
+    setDItems([newDraftItem(memberIds)]);
     setDCategory(undefined);
     closeNewCategoryRow();
     setExpenseErrors([]);
@@ -925,37 +1052,29 @@ const AppScreen = ({
   };
 
   const openEditExpense = (expense: Expense) => {
-    const memberIds = members.map((m) => m.id);
-    const { method, participants } = expense.split;
+    const { method, participants, items } = expense.split;
     const byId = new Map(participants.map((p) => [p.personId, p] as const));
-    const includedIds = memberIds.filter((id) => byId.has(id));
+    const inSplit = memberIds.filter((id) => byId.has(id));
 
-    const included: Record<string, boolean> = {};
-    const pctMap: Record<string, string> = {};
+    const included = Object.fromEntries(memberIds.map((id) => [id, inSplit.includes(id)]));
+    let pctMap: Record<string, string> = evenPct(inSplit);
     const amtMap: Record<string, string> = {};
-    memberIds.forEach((id) => {
-      included[id] = includedIds.includes(id);
-      pctMap[id] = "0";
-      amtMap[id] = "";
-    });
+    let mode: SplitMode;
 
-    if (method === "exact") {
-      includedIds.forEach((id) => {
-        const value = byId.get(id)?.value ?? 0;
-        amtMap[id] = formatMajor(value, expense.currency);
+    if (method === "exact" && items) {
+      mode = "items";
+    } else if (method === "exact") {
+      inSplit.forEach((id) => {
+        amtMap[id] = formatMajor(byId.get(id)?.value ?? 0, expense.currency);
       });
-      setDMode("amount");
+      mode = "amount";
+    } else if (method === "equal") {
+      mode = "equal";
     } else {
-      const weights = includedIds.map((id) => {
-        const p = byId.get(id);
-        if (method === "equal") return 1;
-        return p?.value ?? 0;
-      });
-      const pcts = percentSplitStrings(weights);
-      includedIds.forEach((id, i) => {
-        pctMap[id] = pcts[i];
-      });
-      setDMode("pct");
+      // percent, and "shares" from older data, both open as 比例.
+      const pcts = percentSplitStrings(inSplit.map((id) => byId.get(id)?.value ?? 0));
+      pctMap = Object.fromEntries(inSplit.map((id, i) => [id, pcts[i]]));
+      mode = "pct";
     }
 
     setEditingExpenseId(expense.id);
@@ -963,20 +1082,46 @@ const AppScreen = ({
     setDAmount(formatMajor(expense.amount, expense.currency));
     setDCur(expense.currency);
     setDPayer(expense.paidBy);
+    setDMode(mode);
+    setDIncluded(included);
     setDPct(pctMap);
     setDAmt(amtMap);
-    setDIncluded(included);
+    setDItems(
+      items
+        ? items.map((item) => ({
+            ...newDraftItem(memberIds.filter((id) => item.personIds.includes(id))),
+            label: item.label,
+            amount: formatMajor(item.amount, expense.currency),
+          }))
+        : [newDraftItem(memberIds)],
+    );
     setDCategory(expense.category);
     closeNewCategoryRow();
     setExpenseErrors([]);
     setExpenseModalOpen(true);
   };
 
-  const includedMemberIds = (): string[] => members.filter((m) => dIncluded[m.id]).map((m) => m.id);
+  const changeMode = (mode: SplitMode) => {
+    // 比例 with nothing typed in yet starts from an even split, not from zeros.
+    if (mode === "pct" && includedIds.every((id) => !(Number(dPct[id]) > 0))) {
+      setDPct(evenPct(includedIds));
+    }
+    setDMode(mode);
+  };
 
   const toggleIncluded = (id: string) => {
     const nowIncluded = !dIncluded[id];
     setDIncluded((prev) => ({ ...prev, [id]: nowIncluded }));
+    if (dMode === "pct") {
+      // Percentages still at the even split follow the new head count; ones
+      // the person typed themselves are left alone.
+      const wasEven = isEvenPercentSplit(includedIds.map((pid) => Number(dPct[pid])));
+      const nextIds = memberIds.filter((pid) => (pid === id ? nowIncluded : dIncluded[pid]));
+      if (wasEven) {
+        setDPct(evenPct(nextIds));
+        return;
+      }
+    }
     if (!nowIncluded) {
       setDPct((prev) => ({ ...prev, [id]: "0" }));
       setDAmt((prev) => ({ ...prev, [id]: "" }));
@@ -988,41 +1133,18 @@ const AppScreen = ({
   };
 
   const setAmtValue = (id: string, raw: string) => {
-    const cleaned = raw.replace(/[^0-9.]/g, "");
-    setDAmt((prev) => ({ ...prev, [id]: cleaned }));
+    setDAmt((prev) => ({ ...prev, [id]: cleanAmount(raw) }));
   };
 
-  const handleEqualize = () => {
-    const ids = includedMemberIds();
-    if (ids.length === 0) return;
-    if (dMode === "amount") {
-      const totalMinor = toMinor(Number(dAmount) || 0, dCur);
-      const shares = largestRemainder(totalMinor, ids.map(() => 1));
-      setDAmt((prev) => {
-        const next = { ...prev };
-        ids.forEach((id, i) => {
-          next[id] = formatMajor(shares[i], dCur);
-        });
-        return next;
-      });
-    } else {
-      const pcts = percentSplitStrings(ids.map(() => 1));
-      setDPct((prev) => {
-        const next = { ...prev };
-        ids.forEach((id, i) => {
-          next[id] = pcts[i];
-        });
-        return next;
-      });
-    }
+  const handleEvenPct = () => {
+    if (includedIds.length > 0) setDPct(evenPct(includedIds));
   };
 
   const handleSplitRemainder = () => {
     const totalMinor = toMinor(Number(dAmount) || 0, dCur);
     if (totalMinor <= 0) return;
-    const ids = includedMemberIds();
-    const filledIds = ids.filter((id) => Number(dAmt[id]) > 0);
-    const emptyIds = ids.filter((id) => !(Number(dAmt[id]) > 0));
+    const filledIds = includedIds.filter((id) => Number(dAmt[id]) > 0);
+    const emptyIds = includedIds.filter((id) => !(Number(dAmt[id]) > 0));
     if (emptyIds.length === 0) return;
     const usedMinor = filledIds.reduce((sum, id) => sum + toMinor(Number(dAmt[id]) || 0, dCur), 0);
     const remainingMinor = totalMinor - usedMinor;
@@ -1037,7 +1159,28 @@ const AppScreen = ({
     });
   };
 
+  const patchItem = (key: number, patch: Partial<Omit<DraftItem, "key">>) => {
+    setDItems((prev) => prev.map((item) => (item.key === key ? { ...item, ...patch } : item)));
+  };
+
+  const toggleItemPerson = (key: number, id: string) => {
+    setDItems((prev) =>
+      prev.map((item) => {
+        if (item.key !== key) return item;
+        const has = item.personIds.includes(id);
+        // Kept in member order, so the stored line reads the same everywhere.
+        const next = memberIds.filter((pid) => (pid === id ? !has : item.personIds.includes(pid)));
+        return { ...item, personIds: next };
+      }),
+    );
+  };
+
+  // ---------- expense sheet: what the draft adds up to ----------
+
   const dAmountNumber = Number(dAmount) || 0;
+  const amountMinor = toMinor(dAmountNumber, dCur);
+  const symbol = CURRENCIES[dCur].symbol;
+
   const splitEntries = members
     .filter((m) => dIncluded[m.id])
     .map((m) => ({
@@ -1045,105 +1188,160 @@ const AppScreen = ({
       value: dMode === "amount" ? Number(dAmt[m.id]) || 0 : Number(dPct[m.id]) || 0,
     }))
     .filter((entry) => entry.value > 0);
-  const splitTotal = splitEntries.reduce((sum, e) => sum + e.value, 0);
+
+  const pctTotal = dMode === "pct" ? splitEntries.reduce((sum, e) => sum + e.value, 0) : 0;
+  const amtTotalMinor =
+    dMode === "amount" ? splitEntries.reduce((sum, e) => sum + toMinor(e.value, dCur), 0) : 0;
+
+  // A line nobody has touched is ignored; one half filled in is a problem.
+  const touchedItems = dItems.filter((item) => item.label.trim() !== "" || item.amount !== "");
+  const itemProblem = (() => {
+    for (const item of dItems) {
+      if (!touchedItems.includes(item)) continue;
+      const n = dItems.indexOf(item) + 1;
+      if (!(toMinor(Number(item.amount) || 0, dCur) > 0)) return `第 ${n} 項還沒填金額。`;
+      if (item.personIds.length === 0) return `第 ${n} 項還沒選誰要分。`;
+    }
+    return touchedItems.length === 0 ? "至少要有一項。" : null;
+  })();
+  const draftItems: SplitItem[] = touchedItems.map((item) => ({
+    label: item.label.trim(),
+    amount: toMinor(Number(item.amount) || 0, dCur),
+    personIds: item.personIds,
+  }));
+  const itemsTotalMinor = draftItems.reduce((sum, item) => sum + item.amount, 0);
+
+  /** What is left to hand out, in the mode's own unit: minor units, or percentage points. */
+  const remaining =
+    dMode === "pct"
+      ? roundPercent(100 - pctTotal)
+      : dMode === "amount"
+        ? amountMinor - amtTotalMinor
+        : dMode === "items"
+          ? amountMinor - itemsTotalMinor
+          : 0;
+  // Same tolerance the engine validates percentages with, so a split the
+  // button accepts can never be rejected on save.
+  const remainderClear = dMode === "pct" ? Math.abs(remaining) <= PERCENT_TOLERANCE : remaining === 0;
+
   const splitValid =
-    dAmountNumber > 0 &&
-    splitEntries.length > 0 &&
-    (dMode === "amount"
-      ? Math.abs(splitTotal - dAmountNumber) < 0.01
-      // Same tolerance the engine validates with, so a split the button
-      // accepts can never be rejected on save.
-      : Math.abs(splitTotal - 100) <= PERCENT_TOLERANCE);
+    amountMinor > 0 &&
+    (dMode === "equal"
+      ? includedIds.length > 0
+      : dMode === "items"
+        ? itemProblem === null && remainderClear
+        : splitEntries.length > 0 && remainderClear);
 
   const convertHintText = (() => {
-    if (dCur === baseCurrency) {
-      return dAmountNumber > 0 ? "" : "請在上方輸入金額。";
-    }
-    if (dAmountNumber <= 0) {
-      return `將換算成 ${baseCurrency} 用於結算。`;
-    }
-    const baseMinor = convert(toMinor(dAmountNumber, dCur), dCur, baseCurrency, rates);
-    return `≈ ${formatMoney(baseMinor, baseCurrency)}(${baseCurrency})`;
+    if (dCur === baseCurrency || amountMinor <= 0) return "";
+    const baseMinor = convert(amountMinor, dCur, baseCurrency, rates);
+    return `約 ${formatMoney(baseMinor, baseCurrency)}，結算時換算成 ${baseCurrency}。`;
   })();
 
   /**
-   * How this expense will be stored. An untouched 平均分 becomes "equal" rather
-   * than the percentages it generated: both total the same, but "equal" divides
-   * the money directly instead of dividing a ratio that was rounded onto the
-   * percent grid first, so the worst gap between two people drops from one grid
-   * step OF THE EXPENSE to one minor unit — NT$1.00 to NT$0.01 on a NT$10,000
-   * bill, and it stops scaling with the amount. Percentages keep their own path
-   * because 1/3 has no exact form on any decimal grid, however many digits.
+   * How a 比例 draft will be stored. An untouched even split becomes "equal"
+   * rather than the percentages it generated: both total the same, but "equal"
+   * divides the money directly instead of dividing a ratio that was rounded
+   * onto the percent grid first, so the worst gap between two people drops
+   * from one grid step OF THE EXPENSE to one minor unit — NT$1.00 to NT$0.01
+   * on a NT$10,000 bill, and it stops scaling with the amount. Percentages keep
+   * their own path because 1/3 has no exact form on any decimal grid.
    */
-  const splitMethod: SplitMethod =
-    dMode === "amount"
-      ? "exact"
-      : isEvenPercentSplit(splitEntries.map((e) => e.value))
-        ? "equal"
-        : "percent";
+  const pctMethod = isEvenPercentSplit(splitEntries.map((e) => e.value)) ? "equal" : "percent";
 
-  // Per-row preview, distributed exactly the way the engine will distribute it
-  // on save — otherwise an even split previews the percent-derived NT$3,334.00
-  // and then stores NT$3,333.34.
-  const previewOwed = ((): Record<string, number> => {
-    const totalMinor = toMinor(dAmountNumber, dCur);
-    if (!(totalMinor > 0) || splitEntries.length === 0) return {};
+  // Per-row 比例 preview, distributed exactly the way the engine will on save —
+  // otherwise an even split previews the percent-derived NT$3,334.00 and then
+  // stores NT$3,333.34.
+  const pctPreview = ((): Record<string, number> => {
+    if (dMode !== "pct" || !(amountMinor > 0) || splitEntries.length === 0) return {};
     const weights =
-      splitMethod === "equal" ? splitEntries.map(() => 1) : splitEntries.map((e) => e.value);
-    const shares = largestRemainder(totalMinor, weights);
+      pctMethod === "equal" ? splitEntries.map(() => 1) : splitEntries.map((e) => e.value);
+    const shares = largestRemainder(amountMinor, weights);
     return Object.fromEntries(splitEntries.map((e, i) => [e.personId, shares[i]]));
   })();
 
-  const pctTrailing = (personId: string): string => {
-    const minor = previewOwed[personId];
-    return minor === undefined ? "—" : formatMoney(minor, dCur);
-  };
-
-  const amtTrailing = (amt: number): string => {
-    if (!(dAmountNumber > 0) || amt <= 0) return "—";
+  const shareHint = (id: string): string => {
+    if (dMode === "pct") {
+      const minor = pctPreview[id];
+      return minor === undefined ? "" : formatMoney(minor, dCur);
+    }
+    const amt = Number(dAmt[id]) || 0;
+    if (!(dAmountNumber > 0) || amt <= 0) return "";
     return `${roundPercent((amt / dAmountNumber) * 100)}%`;
   };
+
+  const equalHint = (() => {
+    if (includedIds.length === 0) return "至少選一個人。";
+    if (!(amountMinor > 0)) return `${includedIds.length} 人平分。`;
+    const shares = largestRemainder(amountMinor, includedIds.map(() => 1));
+    const lo = Math.min(...shares);
+    const hi = Math.max(...shares);
+    const each =
+      lo === hi ? formatMoney(lo, dCur) : `${formatMoney(lo, dCur)}～${formatMoney(hi, dCur)}`;
+    return `${includedIds.length} 人平分，每人 ${each}。`;
+  })();
+
+  const itemsSummary = (() => {
+    const ready = draftItems.filter((item) => item.amount > 0 && item.personIds.length > 0);
+    if (ready.length === 0) return "";
+    const owed = itemizedOwed(ready, dPayer);
+    return memberIds
+      .filter((id) => owed[id] !== undefined)
+      .map((id) => `${faceOf(id).name} ${formatMoney(owed[id], dCur)}`)
+      .join(" · ");
+  })();
+
+  const remainderText = (() => {
+    const abs = Math.abs(remaining);
+    const amount = dMode === "pct" ? `${roundPercent(abs)}%` : formatMoney(abs, dCur);
+    return remaining > 0 ? { word: "還有錢沒分配", amount } : { word: "分太多了", amount };
+  })();
 
   const handleSaveExpense = async () => {
     if (!splitValid) return;
     setExpenseErrors([]);
 
-    const amountMinor = toMinor(dAmountNumber, dCur);
+    let split: Expense["split"];
+    if (dMode === "equal") {
+      split = { method: "equal", participants: includedIds.map((personId) => ({ personId })) };
+    } else if (dMode === "items") {
+      split = {
+        method: "exact",
+        participants: itemizedParticipants(draftItems, dPayer),
+        items: draftItems,
+      };
+    } else if (dMode === "amount") {
+      split = {
+        method: "exact",
+        participants: splitEntries.map((e) => ({ personId: e.personId, value: toMinor(e.value, dCur) })),
+      };
+    } else {
+      // "equal" ignores `value` entirely, and Firestore rejects an explicit
+      // undefined inside the nested split object — so omit the key outright.
+      const participants: SplitParticipant[] = splitEntries.map((e) =>
+        pctMethod === "equal" ? { personId: e.personId } : { personId: e.personId, value: e.value },
+      );
+      split = { method: pctMethod, participants };
+    }
 
-    // "equal" ignores `value` entirely, and Firestore rejects an explicit
-    // undefined inside the nested split object — so omit the key outright.
-    const participants: SplitParticipant[] = splitEntries.map((e) =>
-      splitMethod === "equal"
-        ? { personId: e.personId }
-        : {
-            personId: e.personId,
-            value: dMode === "amount" ? toMinor(e.value, dCur) : e.value,
-          },
-    );
-
-    const icon = editingExpenseId
-      ? expenses.find((e) => e.id === editingExpenseId)?.icon
-      : ICONS[expenses.length % ICONS.length];
+    const existing = editingExpenseId ? expenses.find((e) => e.id === editingExpenseId) : undefined;
 
     // No `createdAt`: it is stamped once by addExpense, so editing an expense
     // leaves the original creation time (and therefore the ordering) intact.
+    // `icon` is only carried over from an old expense, never assigned anew.
     const candidate: Omit<Expense, "id" | "createdAt"> = {
       description: dDesc.trim() || "支出",
       amount: amountMinor,
       currency: dCur,
-      icon,
+      icon: existing?.icon,
       paidBy: dPayer,
       category: dCategory,
-      split: { method: splitMethod, participants },
-      createdBy: identity.personId,
+      split,
+      createdBy: existing?.createdBy ?? me,
     };
 
-    const memberIds = members.map((m) => m.id);
-    const existingCreatedAt = editingExpenseId
-      ? expenses.find((e) => e.id === editingExpenseId)?.createdAt
-      : undefined;
     const errors = validateExpense(
-      { ...candidate, id: editingExpenseId ?? "draft", createdAt: existingCreatedAt ?? 0 },
+      { ...candidate, id: editingExpenseId ?? "draft", createdAt: existing?.createdAt ?? 0 },
       memberIds,
     );
     if (errors.length > 0) {
@@ -1160,7 +1358,7 @@ const AppScreen = ({
       writeLastCurrency(groupId, dCur);
       setExpenseModalOpen(false);
     } catch (err) {
-      setExpenseErrors([err instanceof Error ? err.message : "儲存失敗，請再試一次。"]);
+      setExpenseErrors([err instanceof Error ? err.message : "沒存成功，再試一次看看。"]);
     }
   };
 
@@ -1170,11 +1368,11 @@ const AppScreen = ({
       await deleteExpense(editingExpenseId);
       setExpenseModalOpen(false);
     } catch (err) {
-      setExpenseErrors([err instanceof Error ? err.message : "刪除失敗，請再試一次。"]);
+      setExpenseErrors([err instanceof Error ? err.message : "沒刪成功，再試一次看看。"]);
     }
   };
 
-  // ---------- person modal handlers ----------
+  // ---------- person dialog ----------
 
   const openAddPerson = () => {
     setEditingPersonId(null);
@@ -1193,16 +1391,17 @@ const AppScreen = ({
   const personInvolved = (id: string): boolean =>
     expenses.some((e) => e.paidBy === id || e.split.participants.some((p) => p.personId === id));
 
-  const isSelf = editingPersonId !== null && editingPersonId === identity.personId;
+  const isSelf = editingPersonId !== null && editingPersonId === me;
   const involved = editingPersonId !== null && personInvolved(editingPersonId);
   const canRemovePerson = editingPersonId !== null && !isSelf && !involved;
   const removeBlockedMessage = isSelf
-    ? "這是你本人 —— 無法把自己從行程中移除。"
+    ? "這是你自己，沒辦法把自己移出行程。"
     : involved
-      ? "該成員已關聯到現有支出。請先重新指定付款人或刪除相關支出。"
+      ? "這位旅伴已經在某些支出裡了。先改掉付款人或刪掉那幾筆，才能移除。"
       : null;
 
-  const handleSavePerson = async () => {
+  const handleSavePerson = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     const name = pName.trim();
     if (!name) return;
     setPersonError(null);
@@ -1214,7 +1413,7 @@ const AppScreen = ({
       }
       setPersonModalOpen(false);
     } catch (err) {
-      setPersonError(err instanceof Error ? err.message : "儲存失敗，請再試一次。");
+      setPersonError(err instanceof Error ? err.message : "沒存成功，再試一次看看。");
     }
   };
 
@@ -1224,661 +1423,864 @@ const AppScreen = ({
       await removeMember(editingPersonId);
       setPersonModalOpen(false);
     } catch (err) {
-      setPersonError(err instanceof Error ? err.message : "移除失敗，請再試一次。");
+      setPersonError(err instanceof Error ? err.message : "沒移除成功，再試一次看看。");
     }
   };
 
-  // ---------- settle handlers ----------
+  // ---------- settle ----------
 
   const toggleSettled = (row: Settlement) => {
-    void setSettled(row, !isSettled(row), identity.personId).catch((err: unknown) => {
-      setSettleError(err instanceof Error ? err.message : "更新結算狀態失敗。");
+    void setSettled(row, !isSettled(row), me).catch((err: unknown) => {
+      setSettleError(err instanceof Error ? err.message : "結算狀態沒更新成功。");
     });
   };
 
   const resetSettled = () => {
-    void Promise.all(
-      settlement.filter(isSettled).map((row) => setSettled(row, false, identity.personId)),
-    ).catch((err: unknown) => {
-      setSettleError(err instanceof Error ? err.message : "重置結算狀態失敗。");
-    });
+    void Promise.all(settlement.filter(isSettled).map((row) => setSettled(row, false, me))).catch(
+      (err: unknown) => {
+        setSettleError(err instanceof Error ? err.message : "結算狀態沒重置成功。");
+      },
+    );
   };
 
-  return (
-    <div className="tdt-page">
-      <div className="tdt-phone">
-        <div className="tdt-header">
-          <div className="tdt-header-row">
-            <div className="tdt-header-left">
-              <div className="tdt-header-kicker tdt-mono">{baseCurrency} · 餘額</div>
-              <div className="tdt-header-title">{group.name}</div>
-            </div>
-            <div className="tdt-header-right">
-              <div className="tdt-header-total-label tdt-mono">總支出</div>
-              <div className="tdt-header-total-value tdt-mono">
-                {formatMoney(totalSpentMinor, baseCurrency)}
-              </div>
-            </div>
-          </div>
+  /** 「₩100 = NT$2.38、¥100 = NT$21.60」 for every other currency this trip spent in. */
+  const rateLine = (() => {
+    const used = CURRENCY_CODES.filter(
+      (code) => code !== baseCurrency && expenses.some((e) => e.currency === code),
+    );
+    if (used.length === 0) return "";
+    return used
+      .map((code) => {
+        const unit = toMinor(CURRENCIES[code].decimals === 0 ? 100 : 1, code);
+        return `${formatMoney(unit, code)} = ${formatMoney(convert(unit, code, baseCurrency, rates), baseCurrency)}`;
+      })
+      .join("、");
+  })();
 
-          <div className="tdt-invite">
-            <div className="tdt-invite-code">
-              <span className="tdt-invite-label tdt-mono">房間代碼</span>
-              <span className="tdt-invite-value tdt-mono">{groupId}</span>
-            </div>
-            <button type="button" className="tdt-invite-btn tdt-mono" onClick={handleCopyInvite}>
-              {copied ? "已複製 ✓" : "複製邀請連結"}
-            </button>
+  // ---------- pieces used on more than one view ----------
+
+  const shareBox = (message: string) => (
+    <Box label="分享" icon="buddy" labelId="share-box">
+      <div className="ts-stack">
+        <p className="ts-body">{message}</p>
+        <div className="ts-row ts-row--between">
+          <div>
+            <div className="ts-small">房間代碼</div>
+            <div className="ts-code">{groupId}</div>
           </div>
-          {copyFailed && (
+          <button type="button" className="ts-btn ts-sticker" onClick={handleCopyInvite}>
+            {copied ? "已複製！" : "分享連結"}
+          </button>
+        </div>
+        {copyFailed && (
+          <>
+            <p className="ts-help">沒辦法自動複製，請手動複製下面的連結。</p>
             <input
-              className="tdt-invite-fallback tdt-mono"
+              className="ts-input ts-input--num ts-soft"
               readOnly
               value={inviteUrl}
+              aria-label="邀請連結"
               onFocus={(e) => e.currentTarget.select()}
             />
-          )}
+          </>
+        )}
+      </div>
+    </Box>
+  );
+
+  const transferFlow = (s: Settlement) => (
+    <div className="ts-xfer__flow">
+      <Buddy face={faceOf(s.from)} />
+      <span className="ts-arrow" aria-label="給">
+        →
+      </span>
+      <Buddy face={faceOf(s.to)} />
+    </div>
+  );
+
+  const expenseRow = (e: Expense) => {
+    const owedMap = computeOwed(e);
+    const mine = owedMap[me] ?? 0;
+    const category = categoryOf(e.category);
+
+    let share: ReactNode;
+    if (e.paidBy === me) {
+      const others = e.amount - mine;
+      share =
+        others > 0 ? (
+          <span className="ts-expense__share ts-amount--owed">應收 +{formatMoney(others, e.currency)}</span>
+        ) : (
+          <span className="ts-expense__share ts-expense__share--none">你自己的</span>
+        );
+    } else if (mine > 0) {
+      share = (
+        <span className="ts-expense__share ts-amount--owe">你欠 {formatMoney(mine, e.currency)}</span>
+      );
+    } else {
+      share = <span className="ts-expense__share ts-expense__share--none">沒有你的份</span>;
+    }
+
+    return (
+      <button
+        key={e.id}
+        type="button"
+        className="ts-expense ts-sticker"
+        onClick={() => openEditExpense(e)}
+      >
+        <CategoryTile category={category} labelled />
+        <span className="ts-expense__title">{e.description}</span>
+        <span className="ts-expense__right">
+          <span className="ts-amount">{formatMoney(e.amount, e.currency)}</span>
+        </span>
+        <span className="ts-expense__sub">
+          {/* Two halves that wrap as wholes: who paid and who shares, then when and what in base. */}
+          <span className="ts-expense__part">
+            {faceOf(e.paidBy).name}付
+            {e.split.items ? (
+              <span>· 依項目</span>
+            ) : (
+              <Avatars faces={e.split.participants.map((p) => faceOf(p.personId))} />
+            )}
+          </span>
+          <span className="ts-expense__part ts-num">
+            {clock(e.createdAt)}
+            {e.currency !== baseCurrency &&
+              ` · ≈ ${formatMoney(convert(e.amount, e.currency, baseCurrency, rates), baseCurrency)}`}
+          </span>
+        </span>
+        <span className="ts-expense__right">{share}</span>
+      </button>
+    );
+  };
+
+  // ---------- views ----------
+
+  const myKind = balanceKind(myBalance.net);
+  const overview = (
+    <div className="ts-sections">
+      <div className="ts-stats">
+        <div className="ts-stat ts-stat--wide ts-sticker">
+          <div className="ts-money">
+            <Icon name="coin" size={48} alt="旅費" />
+            <div>
+              <div className="ts-amount ts-amount--lg">{formatMoney(totalSpentMinor, baseCurrency)}</div>
+              <div className="ts-stat__sub">
+                已花 · {expenses.length} 筆
+                {members.length > 1 &&
+                  ` · 每人約 ${formatMoney(Math.round(totalSpentMinor / members.length), baseCurrency)}`}
+              </div>
+            </div>
+          </div>
         </div>
+        <div className="ts-stat ts-sticker">
+          <div className={`ts-stat__num ts-amount--${myKind}`}>{signedMoney(myBalance.net, baseCurrency)}</div>
+          <div className="ts-stat__sub">
+            {myKind === "owed" ? "大家欠你" : myKind === "owe" ? "你欠大家" : "你已結清"}
+          </div>
+        </div>
+        <div className="ts-stat ts-sticker">
+          <div className="ts-stat__num">{members.length} 位</div>
+          <div className="ts-stat__sub">{members.map((m) => faceOf(m.id).name).join(" · ")}</div>
+        </div>
+      </div>
 
-        {error && <div className="tdt-error-banner">{error}</div>}
+      {members.length <= 1 && shareBox("現在只有你一個人。把連結傳給旅伴，大家就能一起記帳。")}
 
-        <div className="tdt-body tdt-scroll">
-          {view === "overview" && (
-            <div className="tdt-overview">
+      <Box label="目前餘額" icon="coin" aside={baseCurrency} labelId="balances">
+        {[...members]
+          .sort((a, b) => {
+            const na = balances.find((x) => x.personId === a.id)?.net ?? 0;
+            const nb = balances.find((x) => x.personId === b.id)?.net ?? 0;
+            return nb - na;
+          })
+          .map((m) => {
+            const net = balances.find((b) => b.personId === m.id)?.net ?? 0;
+            const kind = balanceKind(net);
+            return (
+              <div className="ts-bal" key={m.id}>
+                <Buddy face={faceOf(m.id)} />
+                <span className="ts-bal__right">
+                  <span className={`ts-pill ts-pill--${kind} ts-soft`}>{BALANCE_WORD[kind]}</span>
+                  <span className={`ts-amount ts-amount--${kind}`}>{signedMoney(net, baseCurrency)}</span>
+                </span>
+              </div>
+            );
+          })}
+      </Box>
+
+      <Box
+        label="結算"
+        icon="check"
+        aside={settlement.length > 0 ? `${settlement.length} 筆轉帳` : undefined}
+        labelId="settle-preview"
+      >
+        {settlement.length === 0 ? (
+          <p className="ts-help">
+            {expenses.length === 0
+              ? "記了支出之後，這裡會算出誰該給誰多少。"
+              : "大家都兩清了，沒有要轉的錢。"}
+          </p>
+        ) : (
+          <div className="ts-stack">
+            {settlement.slice(0, 3).map((s, i) => (
               <div
-                className={`tdt-mycard ${
-                  myBalance.net > 0 ? "tdt-mycard--positive" : myBalance.net < 0 ? "tdt-mycard--negative" : ""
-                }`}
+                className={`ts-xfer ts-xfer--preview ts-soft ${isSettled(s) ? "ts-xfer--done" : ""}`}
+                key={`${settlementKey(s)}-${i}`}
               >
-                <div className="tdt-mycard-label tdt-mono">你的帳目</div>
-                <div className="tdt-mycard-amount-row">
-                  <div
-                    className={`tdt-mycard-amount tdt-mono ${
-                      myBalance.net > 0
-                        ? "tdt-mycard-amount--positive"
-                        : myBalance.net < 0
-                          ? "tdt-mycard-amount--negative"
-                          : ""
-                    }`}
-                  >
-                    {myBalance.net < 0 ? "−" : ""}
-                    {formatMoney(Math.abs(myBalance.net), baseCurrency)}
-                  </div>
-                </div>
-                <div className="tdt-mycard-sub">
-                  {myBalance.net > 0 ? "你可收回" : myBalance.net < 0 ? "你需支付" : "已結清"}
-                </div>
+                {transferFlow(s)}
+                <span className="ts-amount">{formatMoney(s.amount, baseCurrency)}</span>
               </div>
-
-              <div className="tdt-section">
-                <div className="tdt-section-head">
-                  <div className="tdt-section-title tdt-mono">所有人的餘額</div>
-                  <div className="tdt-section-count tdt-mono">{members.length} 人</div>
-                </div>
-                {members.map((m) => {
-                  const b = balances.find((bal) => bal.personId === m.id);
-                  const net = b?.net ?? 0;
-                  return (
-                    <div className="tdt-row" key={m.id}>
-                      <Avatar name={m.name} color={m.color} size="md" />
-                      <div className="tdt-row-info">
-                        <div className="tdt-row-name">{m.name}</div>
-                        <div className="tdt-row-sub">
-                          已付 {formatMoney(b?.paid ?? 0, baseCurrency)} · 分攤{" "}
-                          {formatMoney(b?.owed ?? 0, baseCurrency)}
-                        </div>
-                      </div>
-                      <div
-                        className={`tdt-row-amount tdt-mono ${
-                          net > 0 ? "tdt-row-amount--positive" : net < 0 ? "tdt-row-amount--negative" : ""
-                        }`}
-                      >
-                        {net < 0 ? "−" : net > 0 ? "+" : ""}
-                        {formatMoney(Math.abs(net), baseCurrency)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="tdt-section">
-                <div className="tdt-section-title tdt-mono">待結算</div>
-                {settlement.length === 0 ? (
-                  <div className="tdt-empty-gold">✓ 大家已經兩清,沒有欠款。</div>
-                ) : (
-                  <div className="tdt-settle-preview-list">
-                    {settlement.slice(0, 3).map((s, i) => (
-                      <div className="tdt-settle-preview-row" key={`${s.from}-${s.to}-${i}`}>
-                        <span className="tdt-name-strong">{nameOf(s.from)}</span>
-                        <span className="tdt-arrow">→</span>
-                        <span className="tdt-name-strong tdt-name-strong--grow">{nameOf(s.to)}</span>
-                        <span className="tdt-mono-strong tdt-mono">{formatMoney(s.amount, baseCurrency)}</span>
-                      </div>
-                    ))}
-                    <button type="button" className="tdt-btn-outline-gold" onClick={() => setView("settle")}>
-                      前往結算 →
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {view === "activity" && (
-            <div className="tdt-view">
-              <div className="tdt-section-head">
-                <div className="tdt-section-title tdt-mono">帳目 · {expenses.length} 筆支出</div>
-              </div>
-              {expenses.length === 0 ? (
-                <div className="tdt-empty-gray">
-                  還沒有任何支出。
-                  <br />
-                  點擊 + 新增第一筆。
-                </div>
-              ) : (
-                <div className="tdt-activity-list">
-                  {expenses.map((e) => {
-                    const baseMinor = convert(e.amount, e.currency, baseCurrency, rates);
-                    const cat = categoryOf(e.category);
-                    return (
-                      <div
-                        className="tdt-row tdt-row--clickable"
-                        key={e.id}
-                        onClick={() => openEditExpense(e)}
-                      >
-                        <div className="tdt-icon-box">{e.icon ?? "💸"}</div>
-                        <div className="tdt-row-info">
-                          <div className="tdt-row-name">{e.description}</div>
-                          <div className="tdt-row-sub">
-                            {cat ? `${cat.icon} ${cat.label} · ` : ""}
-                            {nameOf(e.paidBy)} 付款 · {e.split.participants.length} 人分攤
-                          </div>
-                        </div>
-                        <div className="tdt-activity-amounts">
-                          <div className="tdt-activity-amount tdt-mono">
-                            {formatMoney(e.amount, e.currency)}
-                          </div>
-                          {e.currency !== baseCurrency && (
-                            <div className="tdt-activity-amount-base tdt-mono">
-                              ≈ {formatMoney(baseMinor, baseCurrency)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {view === "categories" && (
-            <div className="tdt-view">
-              <div className="tdt-section-head">
-                <div className="tdt-section-title tdt-mono">各分類支出</div>
-                <div className="tdt-section-count tdt-mono">
-                  {formatMoney(totalSpentMinor, baseCurrency)}
-                </div>
-              </div>
-
-              {categoryTotals.length === 0 ? (
-                <div className="tdt-empty-gray">
-                  還沒有任何支出。
-                  <br />
-                  記一筆並選個分類,這裡就會列出行程花費的去向。
-                </div>
-              ) : (
-                <div className="tdt-cat-list">
-                  {categoryTotals.map((row) => (
-                    <div className="tdt-cat-row" key={row.category.id}>
-                      <div className="tdt-cat-row-head">
-                        <div className="tdt-icon-box">{row.category.icon}</div>
-                        <div className="tdt-row-info">
-                          <div className="tdt-row-name">{row.category.label}</div>
-                          <div className="tdt-row-sub">{row.count} 筆支出</div>
-                        </div>
-                        <div className="tdt-activity-amounts">
-                          <div className="tdt-activity-amount tdt-mono">
-                            {formatMoney(row.total, baseCurrency)}
-                          </div>
-                          <div className="tdt-activity-amount-base tdt-mono">
-                            {roundPercent(row.share)}%
-                          </div>
-                        </div>
-                      </div>
-                      <div className="tdt-cat-bar">
-                        <div
-                          className="tdt-cat-bar-fill"
-                          style={{ width: `${row.share}%` }}
-                          role="presentation"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="tdt-section-head">
-                <div className="tdt-section-title tdt-mono">管理分類</div>
-                <div className="tdt-section-count tdt-mono">{categories.length} 項</div>
-              </div>
-              <div className="tdt-cat-manage-list">
-                {categories.map((c) => (
-                  <div className="tdt-row" key={c.id}>
-                    <div className="tdt-icon-box">{c.icon}</div>
-                    <div className="tdt-row-info">
-                      <div className="tdt-row-name">{c.label}</div>
-                      <div className="tdt-row-sub">
-                        {expenses.filter((e) => e.category === c.id).length} 筆支出
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="tdt-btn-ghost-sm"
-                      onClick={() => openRenameCategory(c)}
-                    >
-                      編輯
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {newCatOpen ? (
-                <div className="tdt-cat-manage-editor">
-                  {categoryEditor}
-                  {editingCategoryId && (
-                    <button
-                      type="button"
-                      className="tdt-btn-danger-outline tdt-cat-delete"
-                      onClick={() => void handleDeleteCategory(editingCategoryId)}
-                    >
-                      刪除此分類
-                    </button>
-                  )}
-                  <div className="tdt-hint tdt-cat-hint">
-                    刪除分類不會動到支出本身,原本歸在這裡的支出會變成「未分類」。
-                  </div>
-                </div>
-              ) : (
-                <button type="button" className="tdt-btn-dashed-gold" onClick={openNewCategoryRow}>
-                  + 新增分類
-                </button>
-              )}
-              {categoryError && <div className="tdt-error-banner">{categoryError}</div>}
-            </div>
-          )}
-
-          {view === "people" && (
-            <div className="tdt-view">
-              <div className="tdt-section-title tdt-mono">行程成員 · {members.length}</div>
-              <div className="tdt-people-list">
-                {members.map((m) => {
-                  const b = balances.find((bal) => bal.personId === m.id);
-                  return (
-                    <div className="tdt-row" key={m.id}>
-                      <Avatar name={m.name} color={m.color} size="md" />
-                      <div className="tdt-row-info">
-                        <div className="tdt-row-name">
-                          {m.name}
-                          {m.id === identity.personId ? "（你）" : ""}
-                        </div>
-                        <div className="tdt-row-sub">已付 {formatMoney(b?.paid ?? 0, baseCurrency)}</div>
-                      </div>
-                      <button type="button" className="tdt-btn-ghost-sm" onClick={() => openEditPerson(m)}>
-                        編輯
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <button type="button" className="tdt-btn-dashed-gold" onClick={openAddPerson}>
-                + 新增成員
+            ))}
+            <div className="ts-row ts-row--end">
+              <button type="button" className="ts-btn ts-sticker" onClick={() => setView("settle")}>
+                看全部結算 →
               </button>
-              <button type="button" className="tdt-btn-outline-gray" onClick={onNavigateOnboard}>
-                ＋ 建立新的行程
-              </button>
-            </div>
-          )}
-
-          {view === "settle" && (
-            <div className="tdt-view tdt-view--settle">
-              <div className="tdt-settle-head">
-                <div className="tdt-section-title tdt-mono">結算</div>
-              </div>
-
-              {settleError && <div className="tdt-error-banner">{settleError}</div>}
-
-              {settlement.length === 0 || settlement.every(isSettled) ? (
-                <div className="tdt-celebrate">
-                  <div className="tdt-celebrate-emoji">🎉</div>
-                  <div className="tdt-celebrate-title">已全部結清!</div>
-                  <div className="tdt-celebrate-sub">本次行程的所有欠款都已清償。</div>
-                </div>
-              ) : null}
-
-              {settlement.length > 0 && (
-                <div className="tdt-settle-list">
-                  {settlement.map((s, i) => {
-                    const skey = settlementKey(s);
-                    const done = isSettled(s);
-                    const fromMember = members.find((m) => m.id === s.from);
-                    return (
-                      <div
-                        className={`tdt-settle-row ${done ? "tdt-settle-row--done" : ""}`}
-                        key={`${skey}-${i}`}
-                      >
-                        <div className="tdt-settle-row-top">
-                          <Avatar name={fromMember?.name ?? "?"} color={fromMember?.color} size="sm" />
-                          <div className="tdt-settle-row-text">
-                            <span className="tdt-name-strong">{nameOf(s.from)}</span>
-                            {" 付給 "}
-                            <span className="tdt-name-strong">{nameOf(s.to)}</span>
-                          </div>
-                          <div className="tdt-settle-row-amount tdt-mono">
-                            {formatMoney(s.amount, baseCurrency)}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className={`tdt-settle-toggle ${!done ? "tdt-settle-toggle--active" : ""}`}
-                          onClick={() => toggleSettled(s)}
-                        >
-                          {done ? "已結清" : "標記已結清"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {settlement.some(isSettled) && (
-                <button type="button" className="tdt-settle-reset" onClick={resetSettled}>
-                  重置結算狀態
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        <button
-          type="button"
-          className="tdt-fab"
-          aria-label="新增支出"
-          onClick={openAddExpense}
-        >
-          +
-        </button>
-
-        <div className="tdt-nav">
-          {NAV_ITEMS.map((n) => (
-            <button
-              key={n.key}
-              type="button"
-              className={`tdt-nav-btn ${view === n.key ? "tdt-nav-btn--active" : ""}`}
-              onClick={() => setView(n.key)}
-            >
-              <span className="tdt-nav-icon">{n.icon}</span>
-              <span className="tdt-nav-label tdt-mono">{n.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {expenseModalOpen && (
-          <div className="tdt-modal-overlay-wrap">
-            <button
-              type="button"
-              className="tdt-backdrop"
-              aria-label="關閉"
-              onClick={() => setExpenseModalOpen(false)}
-            />
-            <div className="tdt-sheet tdt-scroll">
-              <div className="tdt-sheet-head">
-                <div className="tdt-sheet-title">{editingExpenseId ? "編輯支出" : "新增支出"}</div>
-                <button type="button" className="tdt-close-btn" onClick={() => setExpenseModalOpen(false)}>
-                  ×
-                </button>
-              </div>
-              <div className="tdt-sheet-body">
-                <label className="tdt-field">
-                  <span className="tdt-field-label tdt-mono">說明</span>
-                  <input
-                    className="tdt-input"
-                    value={dDesc}
-                    onChange={(e) => setDDesc(e.target.value)}
-                    placeholder="例如:海鮮晚餐"
-                  />
-                </label>
-
-                <div className="tdt-form-row">
-                  <label className="tdt-field tdt-field--grow">
-                    <span className="tdt-field-label tdt-mono">金額</span>
-                    <input
-                      className="tdt-input"
-                      value={dAmount}
-                      onChange={(e) => setDAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                      inputMode="decimal"
-                      placeholder="0.00"
-                    />
-                  </label>
-                  <label className="tdt-field tdt-field--currency">
-                    <span className="tdt-field-label tdt-mono">幣種</span>
-                    <select
-                      className="tdt-select"
-                      value={dCur}
-                      onChange={(e) => setDCur(e.target.value as CurrencyCode)}
-                    >
-                      {CURRENCY_CODES.map((code) => (
-                        <option key={code} value={code}>
-                          {CURRENCIES[code].short}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                {convertHintText && <div className="tdt-hint">{convertHintText}</div>}
-
-                <label className="tdt-field">
-                  <span className="tdt-field-label tdt-mono">付款人</span>
-                  <select className="tdt-select" value={dPayer} onChange={(e) => setDPayer(e.target.value)}>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div className="tdt-catpick">
-                  <span className="tdt-field-label tdt-mono">分類</span>
-                  <div className="tdt-cat-chips">
-                    {categories.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={`tdt-cat-chip ${
-                          dCategory === c.id ? "tdt-cat-chip--active" : ""
-                        }`}
-                        // Tapping the selected chip clears it — an expense is
-                        // allowed to have no category.
-                        onClick={() => setDCategory(dCategory === c.id ? undefined : c.id)}
-                      >
-                        <span aria-hidden>{c.icon}</span>
-                        {c.label}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      className="tdt-cat-chip tdt-cat-chip--add"
-                      onClick={openNewCategoryRow}
-                    >
-                      ＋ 新增分類
-                    </button>
-                  </div>
-                  {newCatOpen && categoryEditor}
-                  {categoryError && <div className="tdt-error-text">{categoryError}</div>}
-                </div>
-
-                <div className="tdt-split">
-                  <div className="tdt-split-head">
-                    <span className="tdt-field-label tdt-mono">分帳方式</span>
-                    <div className="tdt-chip-group">
-                      {dMode === "amount" && dAmountNumber > 0 && (
-                        <button type="button" className="tdt-chip-btn" onClick={handleSplitRemainder}>
-                          剩下平分
-                        </button>
-                      )}
-                      <button type="button" className="tdt-chip-btn" onClick={handleEqualize}>
-                        平均分
-                      </button>
-                    </div>
-                  </div>
-                  <div className="tdt-segmented">
-                    <button
-                      type="button"
-                      className={`tdt-segmented-btn ${dMode === "pct" ? "tdt-segmented-btn--active" : ""}`}
-                      onClick={() => setDMode("pct")}
-                    >
-                      按百分比
-                    </button>
-                    <button
-                      type="button"
-                      className={`tdt-segmented-btn ${dMode === "amount" ? "tdt-segmented-btn--active" : ""}`}
-                      onClick={() => setDMode("amount")}
-                    >
-                      按金額
-                    </button>
-                  </div>
-                  <div className="tdt-split-rows">
-                    {members.map((m) => {
-                      const included = Boolean(dIncluded[m.id]);
-                      const amt = Number(dAmt[m.id]) || 0;
-                      return (
-                        <div
-                          className={`tdt-split-row ${included ? "tdt-split-row--included" : ""}`}
-                          key={m.id}
-                        >
-                          <button
-                            type="button"
-                            className={`tdt-check ${included ? "tdt-check--checked" : ""}`}
-                            onClick={() => toggleIncluded(m.id)}
-                          >
-                            {included ? "✓" : ""}
-                          </button>
-                          <Avatar name={m.name} color={m.color} size="xs" />
-                          <div className="tdt-split-row-name">{m.name}</div>
-                          <span className="tdt-split-row-unit tdt-mono">
-                            {dMode === "amount" ? CURRENCIES[dCur].symbol : "%"}
-                          </span>
-                          <input
-                            className="tdt-split-row-input tdt-mono"
-                            value={dMode === "amount" ? dAmt[m.id] ?? "" : dPct[m.id] ?? "0"}
-                            onChange={(e) =>
-                              dMode === "amount"
-                                ? setAmtValue(m.id, e.target.value)
-                                : setPctValue(m.id, e.target.value)
-                            }
-                            disabled={!included}
-                            inputMode="decimal"
-                          />
-                          <span className="tdt-split-row-trailing tdt-mono">
-                            {dMode === "amount" ? amtTrailing(amt) : pctTrailing(m.id)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="tdt-split-total">
-                    <span className="tdt-split-total-label tdt-mono">
-                      {dMode === "amount" ? "合計 / 應為" : "合計"}
-                    </span>
-                    <span
-                      className={`tdt-split-total-value tdt-mono ${
-                        splitValid ? "tdt-split-total-value--valid" : ""
-                      }`}
-                    >
-                      {dMode === "amount"
-                        ? `${formatMoney(toMinor(splitTotal, dCur), dCur)} / ${formatMoney(
-                            toMinor(dAmountNumber, dCur),
-                            dCur,
-                          )}${splitValid ? " ✓" : ""}`
-                        : `${roundPercent(splitTotal)}%${splitValid ? " ✓" : ""}`}
-                    </span>
-                  </div>
-                </div>
-
-                {expenseErrors.length > 0 && (
-                  <ul className="tdt-error-text">
-                    {expenseErrors.map((err) => (
-                      <li key={err}>{err}</li>
-                    ))}
-                  </ul>
-                )}
-
-                <div className="tdt-modal-actions">
-                  {editingExpenseId && (
-                    <button type="button" className="tdt-btn-danger-outline" onClick={handleDeleteExpense}>
-                      刪除
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="tdt-btn-primary"
-                    disabled={!splitValid}
-                    onClick={handleSaveExpense}
-                  >
-                    {editingExpenseId ? "儲存修改" : "新增支出"}
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         )}
+      </Box>
+    </div>
+  );
 
-        {personModalOpen && (
-          <div className="tdt-modal-overlay-wrap tdt-modal-overlay-wrap--center">
+  const days = groupByDay(expenses);
+  const shownDay = days.find((d) => d.key === dayFilter) ?? null;
+  const dayName = (d: (typeof days)[number]) => (d.isToday ? "今天" : `DAY ${d.dayNumber}`);
+
+  const activity =
+    expenses.length === 0 ? (
+      <div className="ts-box ts-sticker ts-empty">
+        <Icon name="buddy" size={48} />
+        <div className="ts-empty__title">還沒有支出</div>
+        <p className="ts-body">按右下角的「記一筆」，來記第一筆吧。</p>
+      </div>
+    ) : (
+      <>
+        <div className="ts-tabs" role="tablist" aria-label="依日期看" ref={dayTabsRef}>
+          <button
+            type="button"
+            role="tab"
+            className="ts-tab ts-sticker"
+            aria-selected={shownDay === null}
+            onClick={() => setDayFilter(null)}
+          >
+            <span className="ts-tab__day">全部</span>
+            <span className="ts-tab__date">{expenses.length}</span>
+            <span className="ts-tab__count">筆</span>
+          </button>
+          {days.map((d) => (
             <button
+              key={d.key}
               type="button"
-              className="tdt-backdrop"
-              aria-label="關閉"
-              onClick={() => setPersonModalOpen(false)}
-            />
-            <div className="tdt-person-card">
-              <div className="tdt-sheet-head">
-                <div className="tdt-sheet-title">{editingPersonId ? "編輯成員" : "新增成員"}</div>
-                <button type="button" className="tdt-close-btn" onClick={() => setPersonModalOpen(false)}>
-                  ×
+              role="tab"
+              className="ts-tab ts-sticker"
+              aria-selected={shownDay?.key === d.key}
+              onClick={() => setDayFilter(d.key)}
+            >
+              <span className="ts-tab__day">{dayName(d)}</span>
+              <span className="ts-tab__date">{d.label}</span>
+              <span className="ts-tab__count">{d.expenses.length} 筆</span>
+            </button>
+          ))}
+        </div>
+        <div className="ts-stack">
+          {shownDay
+            ? shownDay.expenses.map(expenseRow)
+            : days.map((d) => (
+                <Fragment key={d.key}>
+                  <h2 className="ts-dayhead">
+                    {dayName(d)}
+                    <span className="ts-dayhead__date">{d.label}</span>
+                  </h2>
+                  {d.expenses.map(expenseRow)}
+                </Fragment>
+              ))}
+        </div>
+      </>
+    );
+
+  const categoriesView = (
+    <div className="ts-sections">
+      <Box label="錢花去哪了" icon="coin" aside={formatMoney(totalSpentMinor, baseCurrency)} labelId="cat-totals">
+        {categoryTotals.length === 0 ? (
+          <p className="ts-help">記一筆並選個分類，這裡就會列出錢花去哪了。</p>
+        ) : (
+          <div className="ts-stack ts-stack--tight">
+            {categoryTotals.map((row) => (
+              <div className="ts-catrow" key={row.category.id}>
+                <CategoryTile category={row.category} />
+                <span className="ts-catrow__name">
+                  {row.category.label}
+                  <span className="ts-small">
+                    {" "}
+                    · {row.count} 筆 · {roundPercent(row.share)}%
+                  </span>
+                </span>
+                <span className="ts-amount">{formatMoney(row.total, baseCurrency)}</span>
+                <div className="ts-bar" role="presentation">
+                  <i
+                    className={`ts-fill--${categoryLook(row.category).fill}`}
+                    style={{ width: `${row.share}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Box>
+
+      <Box label="管理分類" aside={`${categories.length} 個`} labelId="cat-manage">
+        <div className="ts-stack">
+          <div>
+            {categories.map((c) => (
+              <div className="ts-bal" key={c.id}>
+                <span className="ts-row">
+                  <CategoryTile category={c} />
+                  <span className="ts-bal__info">
+                    <span>{c.label}</span>
+                    <span className="ts-small">{expenses.filter((e) => e.category === c.id).length} 筆</span>
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="ts-btn ts-btn--sm ts-sticker"
+                  onClick={() => openRenameCategory(c)}
+                >
+                  編輯
                 </button>
               </div>
-              <label className="tdt-field">
-                <span className="tdt-field-label tdt-mono">姓名</span>
+            ))}
+          </div>
+          {newCatOpen ? (
+            categoryEditor
+          ) : (
+            <div className="ts-row">
+              <button type="button" className="ts-btn ts-sticker" onClick={openNewCategoryRow}>
+                新增分類
+              </button>
+            </div>
+          )}
+        </div>
+      </Box>
+    </div>
+  );
+
+  const people = (
+    <div className="ts-sections">
+      {shareBox("拿到這個連結的人都能加入這趟行程。")}
+      <Box label="旅伴" icon="buddy" aside={`${members.length} 位`} labelId="people">
+        <div className="ts-stack">
+          <div>
+            {members.map((m) => {
+              const b = balances.find((bal) => bal.personId === m.id);
+              return (
+                <div className="ts-bal" key={m.id}>
+                  <span className="ts-bal__info">
+                    <span className="ts-row ts-row--tight">
+                      <Buddy face={{ name: m.name, char: avatarChar(m.name) }} />
+                      {m.id === me && <span className="ts-badge">你</span>}
+                    </span>
+                    <span className="ts-small">
+                      已付 {formatMoney(b?.paid ?? 0, baseCurrency)} · 分攤{" "}
+                      {formatMoney(b?.owed ?? 0, baseCurrency)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--sm ts-sticker"
+                    onClick={() => openEditPerson(m)}
+                  >
+                    編輯
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="ts-row">
+            <button type="button" className="ts-btn ts-sticker" onClick={openAddPerson}>
+              新增旅伴
+            </button>
+          </div>
+        </div>
+      </Box>
+      <div className="ts-row ts-row--end">
+        <button type="button" className="ts-btn ts-btn--text" onClick={onNavigateOnboard}>
+          開一趟新行程
+        </button>
+      </div>
+    </div>
+  );
+
+  const allSettled = settlement.every(isSettled);
+  const settle = (
+    <div className="ts-sections">
+      {settleError && (
+        <div className="ts-notice" role="alert">
+          {settleError}
+        </div>
+      )}
+      {allSettled && (
+        <div className="ts-box ts-sticker ts-empty">
+          <Icon name="check" size={48} />
+          <div className="ts-empty__title">
+            {expenses.length === 0 ? "還沒有要結的帳" : "全部結清囉！"}
+          </div>
+          <p className="ts-body">
+            {expenses.length === 0
+              ? "記了支出之後，這裡會列出最少要轉幾筆錢。"
+              : "這趟行程的錢都算清楚了。"}
+          </p>
+        </div>
+      )}
+      {settlement.length > 0 && (
+        <Box label={`結算 · 只要 ${settlement.length} 筆轉帳`} icon="coin" labelId="settle">
+          <div className="ts-stack">
+            {settlement.map((s, i) => {
+              const done = isSettled(s);
+              const amount = formatMoney(s.amount, baseCurrency);
+              return (
+                <div className={`ts-xfer ts-soft ${done ? "ts-xfer--done" : ""}`} key={`${settlementKey(s)}-${i}`}>
+                  <button
+                    type="button"
+                    className="ts-tick ts-soft"
+                    role="checkbox"
+                    aria-checked={done}
+                    aria-label={`${faceOf(s.from).name}給${faceOf(s.to).name} ${amount}，已付`}
+                    onClick={() => toggleSettled(s)}
+                  >
+                    {done && <Icon name="check" />}
+                  </button>
+                  {transferFlow(s)}
+                  <span className="ts-amount">{amount}</span>
+                </div>
+              );
+            })}
+            <p className="ts-help">付完就打勾，所有旅伴都會看到。</p>
+            {rateLine && <p className="ts-help">匯率：{rateLine}</p>}
+            {settlement.some(isSettled) && (
+              <div>
+                <button type="button" className="ts-btn ts-btn--text" onClick={resetSettled}>
+                  全部改回未付
+                </button>
+              </div>
+            )}
+          </div>
+        </Box>
+      )}
+    </div>
+  );
+
+  const views: Record<ViewName, ReactNode> = {
+    overview,
+    activity,
+    categories: categoriesView,
+    people,
+    settle,
+  };
+
+  // ---------- expense sheet: the 怎麼分 body for each mode ----------
+
+  const splitBody =
+    dMode === "equal" ? (
+      <div className="ts-stack ts-stack--tight">
+        <div className="ts-row ts-row--tight" role="group" aria-label="誰要分">
+          {members.map((m) => (
+            <BuddyToggle
+              key={m.id}
+              face={faceOf(m.id)}
+              pressed={Boolean(dIncluded[m.id])}
+              onClick={() => toggleIncluded(m.id)}
+            />
+          ))}
+        </div>
+        <p className="ts-help">{equalHint}</p>
+      </div>
+    ) : dMode === "items" ? (
+      <div className="ts-lines">
+        {dItems.map((item, i) => (
+          <div className="ts-line ts-soft" key={item.key}>
+            <input
+              className="ts-input ts-soft"
+              value={item.label}
+              onChange={(e) => patchItem(item.key, { label: e.target.value })}
+              placeholder={i === 0 ? "例如：韓牛套餐" : `第 ${i + 1} 項`}
+              aria-label={`第 ${i + 1} 項是什麼`}
+            />
+            <span className="ts-share__input">
+              <span className="ts-share__unit">{symbol}</span>
+              <input
+                className="ts-input ts-input--num ts-soft"
+                value={item.amount}
+                onChange={(e) => patchItem(item.key, { amount: cleanAmount(e.target.value) })}
+                inputMode="decimal"
+                placeholder="0"
+                aria-label={`第 ${i + 1} 項金額`}
+              />
+            </span>
+            <button
+              type="button"
+              className="ts-line__remove ts-soft"
+              aria-label={`刪掉第 ${i + 1} 項`}
+              disabled={dItems.length === 1}
+              onClick={() => setDItems((prev) => prev.filter((x) => x.key !== item.key))}
+            >
+              ×
+            </button>
+            <div className="ts-line__who" role="group" aria-label={`第 ${i + 1} 項誰要分`}>
+              {members.map((m) => (
+                <BuddyToggle
+                  key={m.id}
+                  face={faceOf(m.id)}
+                  pressed={item.personIds.includes(m.id)}
+                  onClick={() => toggleItemPerson(item.key, m.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className="ts-row">
+          <button
+            type="button"
+            className="ts-btn ts-btn--sm ts-sticker"
+            onClick={() => setDItems((prev) => [...prev, newDraftItem(memberIds)])}
+          >
+            加一項
+          </button>
+        </div>
+        {itemsSummary && <p className="ts-help">算下來：{itemsSummary}</p>}
+      </div>
+    ) : (
+      <div className="ts-lines">
+        {members.map((m) => {
+          const included = Boolean(dIncluded[m.id]);
+          const face = faceOf(m.id);
+          return (
+            <div className="ts-share" key={m.id}>
+              <span>
+                <BuddyToggle face={face} pressed={included} onClick={() => toggleIncluded(m.id)} />
+              </span>
+              <span className="ts-share__input">
+                <span className="ts-share__unit">{dMode === "amount" ? symbol : "%"}</span>
                 <input
-                  className="tdt-input"
-                  value={pName}
-                  onChange={(e) => setPName(e.target.value)}
-                  placeholder="成員姓名"
+                  className="ts-input ts-input--num ts-soft"
+                  value={dMode === "amount" ? (dAmt[m.id] ?? "") : (dPct[m.id] ?? "0")}
+                  onChange={(e) =>
+                    dMode === "amount" ? setAmtValue(m.id, e.target.value) : setPctValue(m.id, e.target.value)
+                  }
+                  disabled={!included}
+                  inputMode="decimal"
+                  aria-label={`${face.name}的${dMode === "amount" ? "金額" : "比例"}`}
+                />
+              </span>
+              {included && <span className="ts-share__hint">{shareHint(m.id)}</span>}
+            </div>
+          );
+        })}
+        <div className="ts-row">
+          {dMode === "pct" ? (
+            <button type="button" className="ts-btn ts-btn--sm ts-sticker" onClick={handleEvenPct}>
+              先平均分
+            </button>
+          ) : (
+            amountMinor > 0 && (
+              <button type="button" className="ts-btn ts-btn--sm ts-sticker" onClick={handleSplitRemainder}>
+                剩下平分
+              </button>
+            )
+          )}
+        </div>
+      </div>
+    );
+
+  const currentView = VIEWS.find((v) => v.key === view) ?? VIEWS[0];
+
+  return (
+    <Frame
+      meta={
+        <>
+          房間 <span className="ts-nav__code">{groupId}</span>
+        </>
+      }
+    >
+      <div className="ts-hero">
+        <h1 className="ts-h1">{tripName}</h1>
+        <p className="ts-small">
+          {baseCurrency} 結算 · {members.length} 位旅伴
+        </p>
+      </div>
+
+      <nav className="ts-viewbar" aria-label="分頁">
+        <div className="ts-chips" role="tablist">
+          {VIEWS.map((v) => (
+            <button
+              key={v.key}
+              id={`view-tab-${v.key}`}
+              type="button"
+              role="tab"
+              className="ts-chip ts-chip--plain ts-soft"
+              aria-selected={view === v.key}
+              onClick={() => setView(v.key)}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {error && (
+        <div className="ts-notice" role="alert">
+          {error}
+        </div>
+      )}
+
+      <div role="tabpanel" aria-labelledby={`view-tab-${currentView.key}`}>
+        {views[view]}
+      </div>
+
+      <button type="button" className="ts-btn ts-btn--primary ts-sticker ts-fab" onClick={openAddExpense}>
+        <Icon name="coin" size={24} />
+        記一筆
+      </button>
+
+      {expenseModalOpen && (
+        <div className="ts-overlay">
+          <button
+            type="button"
+            className="ts-backdrop"
+            aria-label="關閉"
+            tabIndex={-1}
+            onClick={() => setExpenseModalOpen(false)}
+          />
+          <div className="ts-sheet ts-box ts-sticker" role="dialog" aria-modal="true" aria-labelledby="expense-title">
+            <h2 className="ts-label" id="expense-title">
+              <span className="ts-tape" aria-hidden />
+              <Icon name="coin" />
+              {editingExpenseId ? "編輯這筆" : "記一筆"}
+            </h2>
+            <button
+              type="button"
+              className="ts-close ts-soft"
+              aria-label="關閉"
+              onClick={() => setExpenseModalOpen(false)}
+            >
+              ×
+            </button>
+
+            <div className="ts-stack">
+              <div className="ts-field">
+                <label className="ts-field__name" htmlFor="expense-amount">
+                  金額
+                </label>
+                <div className="ts-amountrow">
+                  <input
+                    id="expense-amount"
+                    className="ts-input ts-input--big ts-soft"
+                    value={dAmount}
+                    onChange={(e) => setDAmount(cleanAmount(e.target.value))}
+                    inputMode="decimal"
+                    placeholder="0"
+                    autoFocus={!editingExpenseId}
+                  />
+                  <select
+                    className="ts-select ts-soft"
+                    aria-label="幣別"
+                    value={dCur}
+                    onChange={(e) => setDCur(e.target.value as CurrencyCode)}
+                  >
+                    {CURRENCY_CODES.map((code) => (
+                      <option key={code} value={code}>
+                        {CURRENCIES[code].short}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {convertHintText && <p className="ts-help">{convertHintText}</p>}
+              </div>
+
+              <label className="ts-field">
+                <span className="ts-field__name">買了什麼</span>
+                <input
+                  className="ts-input ts-soft"
+                  value={dDesc}
+                  onChange={(e) => setDDesc(e.target.value)}
+                  placeholder="例如：海雲台烤貝晚餐"
                 />
               </label>
-              <div className="tdt-person-actions">
-                {editingPersonId && canRemovePerson && (
-                  <button type="button" className="tdt-btn-danger-outline" onClick={handleRemovePerson}>
-                    移除
+
+              <div className="ts-field">
+                <span className="ts-field__name" id="expense-category">
+                  分類
+                </span>
+                <div className="ts-chips ts-chips--wrap" role="group" aria-labelledby="expense-category">
+                  {categories.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="ts-chip ts-soft"
+                      aria-pressed={dCategory === c.id}
+                      // Tapping the selected chip clears it — an expense is
+                      // allowed to have no category.
+                      onClick={() => setDCategory(dCategory === c.id ? undefined : c.id)}
+                    >
+                      <CategoryMark category={c} />
+                      {c.label}
+                    </button>
+                  ))}
+                  {!newCatOpen && (
+                    <button type="button" className="ts-chip ts-chip--plain ts-soft" onClick={openNewCategoryRow}>
+                      ＋ 新增分類
+                    </button>
+                  )}
+                </div>
+                {newCatOpen && categoryEditor}
+              </div>
+
+              <div className="ts-field">
+                <span className="ts-field__name" id="expense-payer">
+                  誰付的
+                </span>
+                <div className="ts-row ts-row--tight" role="group" aria-labelledby="expense-payer">
+                  {members.map((m) => (
+                    <BuddyToggle
+                      key={m.id}
+                      face={faceOf(m.id)}
+                      pressed={dPayer === m.id}
+                      onClick={() => setDPayer(m.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="ts-field">
+                <span className="ts-field__name" id="expense-mode">
+                  怎麼分
+                </span>
+                <div className="ts-seg" role="group" aria-labelledby="expense-mode">
+                  {SPLIT_MODES.map((m) => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      className="ts-soft"
+                      aria-pressed={dMode === m.key}
+                      onClick={() => changeMode(m.key)}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {splitBody}
+
+              {dMode !== "equal" &&
+                (amountMinor > 0 ? (
+                  remainderClear ? (
+                    <div className="ts-left ts-left--ok ts-soft" role="status">
+                      <span className="ts-row ts-row--tight">
+                        <Icon name="check" />
+                        分好了！
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="ts-left ts-soft" role="status">
+                      <span>{remainderText.word}</span>
+                      <span className="ts-amount">{remainderText.amount}</span>
+                    </div>
+                  )
+                ) : (
+                  <p className="ts-help">先填上金額，再來分。</p>
+                ))}
+              {dMode === "items" && amountMinor > 0 && itemProblem && touchedItems.length > 0 && (
+                <p className="ts-help">{itemProblem}</p>
+              )}
+
+              {expenseErrors.length > 0 && (
+                <ul className="ts-error">
+                  {expenseErrors.map((err) => (
+                    <li key={err}>{err}</li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="ts-actions">
+                {editingExpenseId ? (
+                  <button type="button" className="ts-btn ts-btn--text" onClick={handleDeleteExpense}>
+                    刪除這筆
                   </button>
+                ) : (
+                  <span />
                 )}
                 <button
                   type="button"
-                  className="tdt-btn-primary"
-                  disabled={!pName.trim()}
-                  onClick={handleSavePerson}
+                  className="ts-btn ts-btn--primary ts-sticker"
+                  disabled={!splitValid}
+                  onClick={handleSaveExpense}
                 >
                   儲存
                 </button>
               </div>
-              {personError && <p className="tdt-error-text">{personError}</p>}
-              {removeBlockedMessage && <div className="tdt-warning-text">{removeBlockedMessage}</div>}
             </div>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+
+      {personModalOpen && (
+        <div className="ts-overlay ts-overlay--center">
+          <button
+            type="button"
+            className="ts-backdrop"
+            aria-label="關閉"
+            tabIndex={-1}
+            onClick={() => setPersonModalOpen(false)}
+          />
+          <form
+            className="ts-dialog ts-box ts-sticker"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="person-title"
+            onSubmit={handleSavePerson}
+          >
+            <h2 className="ts-label" id="person-title">
+              <span className="ts-tape" aria-hidden />
+              <Icon name="buddy" />
+              {editingPersonId ? "編輯旅伴" : "新增旅伴"}
+            </h2>
+            <button
+              type="button"
+              className="ts-close ts-soft"
+              aria-label="關閉"
+              onClick={() => setPersonModalOpen(false)}
+            >
+              ×
+            </button>
+            <div className="ts-stack">
+              <label className="ts-field">
+                <span className="ts-field__name">名字</span>
+                <input
+                  className="ts-input ts-soft"
+                  value={pName}
+                  onChange={(e) => setPName(e.target.value)}
+                  placeholder="例如：阿凱"
+                  autoFocus
+                />
+              </label>
+              {removeBlockedMessage && <p className="ts-help">{removeBlockedMessage}</p>}
+              {personError && <p className="ts-error">{personError}</p>}
+              <div className="ts-actions">
+                {editingPersonId && canRemovePerson ? (
+                  <button type="button" className="ts-btn ts-btn--text" onClick={handleRemovePerson}>
+                    移除
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <button type="submit" className="ts-btn ts-btn--primary ts-sticker" disabled={!pName.trim()}>
+                  儲存
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+    </Frame>
   );
 };
