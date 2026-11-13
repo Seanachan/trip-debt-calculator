@@ -1,181 +1,155 @@
 /* ============================================================
-   台南街頭 — design tokens
-   Surfaces borrowed from Tainan streets: hand-painted shop signs,
-   hand-bent iron window grilles (鐵窗花), red brick, washed cement.
+   行程表 — design tokens
+   From the 行程表 design system (tokens.json v3), the same values
+   trip-schedule ships in its own index.css: a sticker journal on
+   sunny cream paper by day, deep-sea navy by night. The device's
+   colour scheme picks the theme; there is no toggle.
    ============================================================ */
 
 :root {
-  /* 招牌米 — signboard cream, the page ground */
-  --sign: #efe3c8;
-  --sign-lit: #fbf4e2;
-  --sign-shade: #e2d3b3;
+  color-scheme: light dark;
 
-  /* 磚紅 — brick, the primary accent */
-  --brick: #a63f31;
-  --brick-deep: #7c2c22;
-  --brick-wash: rgba(166, 63, 49, 0.1);
+  /* Surfaces */
+  --ground: #fffaf0;
+  --panel: #ffffff;
+  --panel-tint: #fff3d1;
+  --line: #dbe9f6;
+  --outline: #6b8db0;
+  --lift: #d6e6f5;
 
-  /* 鐵窗綠 — iron grille paint */
-  --grille: #3e7d6e;
-  --grille-text: #2f6155; /* passes AA on --sign */
-  --grille-pale: #9cc4b2; /* aged, sun-bleached */
-  --grille-wash: rgba(62, 125, 110, 0.12);
+  /* Text */
+  --text: #14304a;
+  --text-soft: #4f6b86;
 
-  /* 水泥 — cement */
-  --cement: #6e6a62;
-  --cement-text: #57534b; /* passes AA on --sign */
-  --cement-dark: #3c3833;
+  /* The main colour: one primary action per view, and whatever is selected */
+  --coral: #ff7452;
+  --coral-deep: #d9472a;
+  --on-coral: #14304a;
 
-  /* 墨 — ink */
-  --ink: #241f1c;
-  --ink-soft: #4a423c;
+  /* Bright fills, same in both themes; text on them is always --on-fill */
+  --on-fill: #14304a;
+  --sun: #ffd23f;
+  --sky: #6fc8ff;
+  --palm: #5fd99a;
+  --strawberry: #ff8fb1;
+  --lilac: #b9a7ff;
 
-  /* Typefaces: condensed painted-sign display, humanist body,
-     mono for measured values only, 宋體 for Chinese. */
-  --font-display: "Archivo", "Arial Narrow", Helvetica, sans-serif;
-  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Latin from the condensed sign face, Chinese from the 宋體 signage face —
-     the browser picks per glyph. */
-  --font-display-zh: "Archivo", "Noto Serif TC", "PingFang TC",
-    "Microsoft JhengHei", sans-serif;
-  /* The trip-debt calculator's own UI is written in Chinese; these keep its
-     headings on the signage face instead of a system fallback. */
-  --font-zh: "Noto Serif TC", "Songti TC", "PingFang TC", "Microsoft JhengHei",
-    serif;
+  --cat-transit: var(--sky);
+  --cat-stay: var(--lilac);
+  --cat-food: var(--strawberry);
+  --cat-sight: var(--sun);
+  --cat-shop: var(--palm);
 
-  /* 洗石子 — washed-pebble speckle, laid over flat fills */
-  --tex-terrazzo: radial-gradient(
-      circle at 18% 24%,
-      rgba(0, 0, 0, 0.09) 0 1.4px,
-      transparent 1.8px
-    ),
-    radial-gradient(
-      circle at 68% 61%,
-      rgba(255, 255, 255, 0.16) 0 1.6px,
-      transparent 2px
-    ),
-    radial-gradient(
-      circle at 41% 82%,
-      rgba(0, 0, 0, 0.06) 0 1.2px,
-      transparent 1.6px
-    ),
-    radial-gradient(
-      circle at 88% 12%,
-      rgba(0, 0, 0, 0.07) 0 1.1px,
-      transparent 1.5px
-    );
-  --tex-terrazzo-size: 29px 29px, 37px 37px, 23px 23px, 43px 43px;
+  /* Money. As text: coin-ink for amounts, owed/owe for balances, always with
+     a sign and a word. As fills: the 應收 / 應付 chips and the 尚未分配 bar. */
+  --coin-ink: #9a5a00;
+  --money-owed: #0a64b4;
+  --money-owe: #c03d0c;
+  --money-owed-fill: #cfe8ff;
+  --money-owe-fill: #ffd9c7;
 
-  /* Rules: painted, never hairline-precise */
-  --rule-ink: 2px solid var(--ink);
-  --rule-brick: 3px solid var(--brick);
+  --focus: #0b74d1;
 
-  /* ---- Legacy dark tokens: still consumed by /trip-schedule only.
-     Do not use in new work. ---- */
-  --space-blue: #0a192f;
-  --space-light: #172a45;
-  --space-lighter: #233554;
-  --purdue-gold: #ceb888;
-  --purdue-muted: #b19b6e;
-  --text-white: #ffffff;
-  --text-gray-300: #d1d5db;
-  --text-gray-400: #9ca3af;
-  --text-gray-500: #6b7280;
-  --text-gray-600: #4b5563;
+  /* Type */
+  --font-head: "Chiron GoRound TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-round: "Chiron GoRound TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-num: "Fredoka", "Chiron GoRound TC", ui-rounded, sans-serif;
 
-  font-family: var(--font-body);
+  /* Spacing: a 4px grid */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+
+  /* Solid lifts, never a blur */
+  --shadow-sticker: 0 4px 0 0 #d6e6f5;
+  --shadow-primary: 0 4px 0 0 #d9472a;
+  --shadow-pressed: 0 1px 0 0 #d6e6f5;
+
+  font-family: var(--font-round);
   font-size: 16px;
-  line-height: 1.6;
-  font-weight: 400;
-
-  color-scheme: light;
-  color: var(--ink);
-  background-color: var(--sign);
+  line-height: 1.65;
+  color: var(--text);
+  background-color: var(--ground);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0e2032;
+    --panel: #16304a;
+    --panel-tint: #1f3d5c;
+    --line: #2a4a6a;
+    --outline: #7fa3c6;
+    --lift: #081522;
+
+    --text: #f4f9ff;
+    --text-soft: #b3cae0;
+
+    --coral: #ff8a6b;
+    --coral-deep: #c75a3d;
+    --on-coral: #0b2236;
+
+    --coin-ink: #ffd23f;
+    --money-owed: #8ccfff;
+    --money-owe: #ffa982;
+    --focus: #8ccfff;
+
+    --shadow-sticker: 0 4px 0 0 #081522;
+    --shadow-primary: 0 4px 0 0 #c75a3d;
+    --shadow-pressed: 0 1px 0 0 #081522;
+  }
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background-color: var(--sign);
+  background-color: var(--ground);
   overflow-x: hidden;
 }
 
-/* Display type is set condensed and heavy, the way a sign painter
-   fits a long name onto a narrow board. */
-h1,
-h2,
-h3 {
-  font-family: var(--font-display);
-  font-variation-settings: "wdth" 80;
-  font-weight: 800;
-  letter-spacing: -0.005em;
-  text-wrap: balance;
-}
-
-.num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Enamel plate — the shared button surface, like a screwed-on
-   sign plate rather than a soft UI pill. */
-button {
-  border: 2px solid var(--ink);
-  border-radius: 2px;
-  padding: 0.5rem 1rem;
-  font-family: var(--font-display);
-  font-variation-settings: "wdth" 88;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  background-color: var(--sign-lit);
-  color: var(--ink);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease,
-    box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-button:hover {
-  background-color: var(--brick);
-  color: var(--sign-lit);
-}
-
-:where(a, button, [tabindex]):focus-visible {
-  outline: 3px solid var(--brick);
-  outline-offset: 2px;
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 
 a {
-  color: var(--brick);
-  font-weight: 500;
-  text-decoration-color: rgba(166, 63, 49, 0.35);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
+  color: inherit;
+  text-decoration: none;
 }
 
-a:hover {
-  color: var(--brick-deep);
-  text-decoration-color: var(--brick);
+:where(a, button, input, select, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 ::selection {
-  background-color: var(--brick);
-  color: var(--sign-lit);
+  background-color: var(--sun);
+  color: var(--on-fill);
 }
 
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+    animation: none !important;
+    transition: none !important;
   }
 }

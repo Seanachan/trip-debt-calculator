@@ -1,0 +1,1152 @@
+/* 行程表 — sticker-journal components, ledger edition.
+   Ported from the design system's components/bundle.css, the way
+   trip-schedule's src/styles/sticker.css is: ts- prefix kept so the three
+   stay easy to compare, values from the tokens in index.css. The base
+   pieces match trip-schedule's; the ledger's own (expense rows, split
+   editor, balances, settle-up) are the parts it left for this repo. */
+
+/* ---- page frame ---- */
+.ts-page {
+  min-height: 100vh;
+  background: var(--ground);
+  color: var(--text);
+}
+.ts-wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 var(--space-16);
+  box-sizing: border-box;
+}
+.ts-main {
+  padding-top: var(--space-24);
+  /* Room for the fixed 記一筆 pill, so the last row is never under it. */
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+.ts-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--ground);
+  border-bottom: 2px solid var(--line);
+}
+.ts-nav__inner {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+.ts-brand {
+  font-family: var(--font-head);
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ts-nav__meta {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ts-nav__code {
+  font-family: var(--font-num);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+
+/* ---- shared bits ---- */
+.ts-ico {
+  display: inline-block;
+  vertical-align: middle;
+  flex: none;
+  transition: transform 200ms;
+}
+.ts-sticker:hover > .ts-ico,
+.ts-sticker:hover .ts-tile .ts-ico,
+.ts-sticker:hover .ts-label .ts-ico {
+  transform: rotate(-3deg);
+}
+.ts-num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.ts-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+  align-items: center;
+}
+.ts-row--tight {
+  gap: var(--space-8);
+}
+.ts-row--end {
+  justify-content: flex-end;
+}
+.ts-row--between {
+  justify-content: space-between;
+}
+.ts-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+.ts-stack--tight {
+  gap: var(--space-8);
+}
+.ts-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+}
+.ts-h1 {
+  margin: 0;
+  font-family: var(--font-head);
+  font-weight: 800;
+  font-size: clamp(28px, 8vw, 38px);
+  line-height: 1.25;
+  color: var(--text);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.ts-h2 {
+  margin: 0;
+  font-family: var(--font-head);
+  font-weight: 800;
+  font-size: 24px;
+  line-height: 1.35;
+  color: var(--text);
+}
+.ts-body {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.65;
+}
+.ts-small {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+.ts-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin-bottom: var(--space-24);
+}
+.ts-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- surfaces ---- */
+.ts-sticker {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sticker);
+}
+.ts-soft {
+  border: 2px solid var(--outline);
+  border-radius: var(--radius-sm);
+}
+.ts-box {
+  position: relative;
+  padding: var(--space-20);
+}
+.ts-box.ts-sticker {
+  border-radius: var(--radius-lg);
+}
+
+/* ---- buttons ---- */
+.ts-btn {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text);
+  padding: 7px 18px;
+  cursor: pointer;
+  border-radius: var(--radius-pill) !important;
+  transition: transform 100ms, box-shadow 100ms;
+}
+.ts-btn.ts-sticker {
+  border-color: var(--outline);
+}
+.ts-btn--primary.ts-sticker {
+  background: var(--coral);
+  color: var(--on-coral);
+  border-color: var(--coral);
+  box-shadow: var(--shadow-primary);
+}
+.ts-btn:active:not([disabled]) {
+  transform: translateY(3px);
+  box-shadow: var(--shadow-pressed);
+}
+.ts-btn[disabled] {
+  cursor: not-allowed;
+  background: var(--panel-tint);
+  color: var(--text-soft);
+  border-color: var(--outline);
+  border-style: dashed;
+  box-shadow: none;
+}
+.ts-btn--sm {
+  font-size: 14px;
+  padding: 4px 14px;
+}
+.ts-btn--wide {
+  width: 100%;
+}
+.ts-btn--text {
+  background: none;
+  border: 0 !important;
+  box-shadow: none;
+  padding: 0;
+  font-family: var(--font-round);
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--text-soft);
+  text-decoration: underline wavy;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.ts-btn--text:hover {
+  color: var(--text);
+}
+.ts-btn--text[disabled] {
+  background: none;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+/* The one primary action, fixed where a thumb reaches it. Sits inside the
+   720px column on a wide screen instead of drifting to the window edge. */
+.ts-fab {
+  position: fixed;
+  z-index: 110;
+  right: max(var(--space-16), calc((100vw - 720px) / 2 + var(--space-16)));
+  bottom: calc(var(--space-20) + env(safe-area-inset-bottom));
+  padding: 10px 22px 10px 14px;
+  font-size: 17px;
+}
+.ts-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-soft);
+  background: var(--panel);
+  cursor: pointer;
+  border-radius: 50% !important;
+}
+
+/* ---- tags + badges ---- */
+.ts-badge {
+  display: inline-block;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 0 10px;
+  background: var(--panel-tint);
+  color: var(--text);
+  border-radius: var(--radius-pill) !important;
+}
+
+/* ---- chips: view tabs, day-free filters, category pickers ---- */
+.ts-chips {
+  display: flex;
+  gap: var(--space-8);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 2px 6px;
+}
+.ts-chips::-webkit-scrollbar {
+  display: none;
+}
+.ts-chips--wrap {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.ts-chip {
+  flex: none;
+  font-size: 14px;
+  line-height: 1.6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 14px 3px 4px;
+  cursor: pointer;
+  background: var(--panel);
+  color: var(--text-soft);
+  white-space: nowrap;
+  border-radius: var(--radius-pill) !important;
+}
+.ts-chip[aria-pressed="true"],
+.ts-chip[aria-selected="true"] {
+  background: var(--panel-tint);
+  color: var(--text);
+  box-shadow: inset 0 -3px 0 0 var(--coral);
+}
+.ts-chip--plain {
+  padding-left: 14px;
+}
+.ts-chip__emoji {
+  width: 20px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 20px;
+}
+.ts-viewbar {
+  position: sticky;
+  top: 58px;
+  z-index: 90;
+  margin: 0 calc(-1 * var(--space-16)) var(--space-16);
+  padding: var(--space-8) var(--space-16) var(--space-4);
+  background: var(--ground);
+}
+.ts-viewbar .ts-chip {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 15px;
+  padding: 4px 16px;
+}
+
+/* ---- day tabs ---- */
+.ts-tabs {
+  display: flex;
+  gap: var(--space-12);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px 4px 14px;
+  margin-bottom: var(--space-4);
+}
+.ts-tabs::-webkit-scrollbar {
+  display: none;
+}
+.ts-tab {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 64px;
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--text-soft);
+  border-radius: var(--radius-md);
+  transition: transform 150ms;
+}
+.ts-tab[aria-selected="true"] {
+  background: var(--coral);
+  color: var(--on-coral);
+  border-color: var(--coral);
+  box-shadow: var(--shadow-primary);
+  transform: rotate(-2deg) translateY(-2px);
+}
+.ts-tab__day {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 13px;
+}
+.ts-tab__date {
+  font-family: var(--font-num);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.ts-tab__count {
+  font-size: 12px;
+}
+.ts-dayhead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  margin: var(--space-8) 0 calc(-1 * var(--space-4));
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 15px;
+}
+.ts-dayhead__date {
+  font-family: var(--font-num);
+  font-weight: 500;
+  color: var(--text-soft);
+}
+
+/* ---- category bubble ---- */
+.ts-tile {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  line-height: 1;
+  border-radius: 50% !important;
+}
+.ts-tile--transit {
+  background: var(--cat-transit);
+}
+.ts-tile--stay {
+  background: var(--cat-stay);
+}
+.ts-tile--food {
+  background: var(--cat-food);
+}
+.ts-tile--sight {
+  background: var(--cat-sight);
+}
+.ts-tile--shop {
+  background: var(--cat-shop);
+}
+.ts-tile--plain {
+  background: var(--panel-tint);
+}
+
+/* ---- money ---- */
+.ts-amount {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--coin-ink);
+  white-space: nowrap;
+}
+.ts-amount--lg {
+  font-size: 28px;
+  line-height: 1.1;
+}
+.ts-amount--sub {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-soft);
+}
+.ts-amount--owed {
+  color: var(--money-owed);
+}
+.ts-amount--owe {
+  color: var(--money-owe);
+}
+.ts-amount--zero {
+  color: var(--text-soft);
+  font-weight: 400;
+}
+
+/* ---- stats ---- */
+.ts-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-16);
+}
+.ts-stat {
+  min-width: 0;
+  padding: var(--space-12) var(--space-16);
+}
+.ts-stat--wide {
+  grid-column: span 2;
+}
+.ts-stat__num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.ts-stat__sub {
+  font-size: 13px;
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+.ts-money {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+}
+.ts-bar {
+  height: 14px;
+  margin-top: 10px;
+  background: var(--panel-tint);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.ts-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--sun);
+  border-radius: var(--radius-pill);
+  transition: width 320ms ease;
+}
+.ts-bar > i.ts-fill--transit {
+  background: var(--cat-transit);
+}
+.ts-bar > i.ts-fill--stay {
+  background: var(--cat-stay);
+}
+.ts-bar > i.ts-fill--food {
+  background: var(--cat-food);
+}
+.ts-bar > i.ts-fill--sight {
+  background: var(--cat-sight);
+}
+.ts-bar > i.ts-fill--shop {
+  background: var(--cat-shop);
+}
+.ts-bar > i.ts-fill--plain {
+  background: var(--outline);
+}
+
+/* ---- labelled boxes ---- */
+.ts-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-12);
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.ts-label__aside {
+  margin-left: auto;
+  font-family: var(--font-round);
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.ts-tape {
+  position: absolute;
+  left: -30px;
+  top: -30px;
+  width: 76px;
+  height: 22px;
+  background: var(--sun);
+  opacity: 0.75;
+  transform: rotate(-14deg);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.ts-help {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+.ts-error {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--money-owe);
+}
+.ts-notice {
+  margin-bottom: var(--space-16);
+  padding: var(--space-12) var(--space-16);
+  font-size: 14px;
+  color: var(--on-fill);
+  background: var(--money-owe-fill);
+  border-radius: var(--radius-md);
+}
+.ts-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-24) var(--space-16);
+  text-align: center;
+  font-size: 15px;
+  color: var(--text-soft);
+}
+.ts-empty__title {
+  font-family: var(--font-head);
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--text);
+}
+.ts-code {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 28px;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+}
+
+/* ---- links (a row you tap to go somewhere) ---- */
+.ts-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-12);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  text-align: left;
+  color: var(--text);
+  font-size: 15px;
+  background: var(--panel);
+  cursor: pointer;
+  border-radius: var(--radius-pill) !important;
+}
+.ts-link__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ts-link__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- form fields ---- */
+.ts-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ts-field__name {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-soft);
+}
+.ts-input,
+.ts-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 14px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--panel);
+}
+.ts-input::placeholder {
+  color: var(--text-soft);
+  opacity: 0.8;
+}
+.ts-input[disabled] {
+  background: var(--panel-tint);
+  color: var(--text-soft);
+  border-style: dashed;
+}
+.ts-input--num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.ts-input--big {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 500;
+}
+.ts-input--code {
+  font-family: var(--font-num);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.ts-input--code::placeholder {
+  letter-spacing: normal;
+  text-transform: none;
+}
+/* A chevron drawn from the theme's own ink, so it flips with dark mode. */
+.ts-select {
+  appearance: none;
+  padding-right: 36px;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-soft) 50%),
+    linear-gradient(135deg, var(--text-soft) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 55%, calc(100% - 14px) 55%;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+.ts-amountrow {
+  display: grid;
+  grid-template-columns: 1fr 128px;
+  gap: var(--space-8);
+}
+.ts-amountrow .ts-select {
+  height: 100%;
+}
+
+/* ---- buddies ---- */
+.ts-buddy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel);
+  padding: 2px 12px 2px 2px;
+  border-radius: var(--radius-pill) !important;
+}
+.ts-buddy__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-av {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  background: var(--sun);
+  color: var(--on-fill);
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 50%;
+}
+button.ts-buddy {
+  cursor: pointer;
+  color: var(--text-soft);
+}
+button.ts-buddy[aria-pressed="true"] {
+  background: var(--sky);
+  color: var(--on-fill);
+}
+.ts-avs {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.ts-avs .ts-av {
+  width: 22px;
+  height: 22px;
+  margin-left: -5px;
+  font-size: 11px;
+  box-sizing: border-box;
+  border: 2px solid var(--outline);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.ts-avs .ts-av:first-child {
+  margin-left: 0;
+}
+.ts-avs .ts-av--more {
+  width: auto;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--panel-tint);
+  color: var(--text);
+  font-family: var(--font-num);
+}
+
+/* ---- expense row ---- */
+.ts-expense {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px var(--space-12);
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-12) var(--space-16);
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+.ts-expense .ts-tile {
+  grid-row: span 2;
+}
+.ts-expense__title {
+  min-width: 0;
+  font-size: 17px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-expense__sub {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+.ts-expense__part {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.ts-expense__right {
+  text-align: right;
+}
+.ts-expense__share {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ts-expense__share--none {
+  color: var(--text-soft);
+  font-family: var(--font-round);
+  font-weight: 400;
+  font-size: 13px;
+}
+
+/* ---- category rows ---- */
+.ts-catrow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px var(--space-12);
+  align-items: center;
+}
+.ts-catrow + .ts-catrow {
+  padding-top: var(--space-12);
+  border-top: 2px dotted var(--line);
+}
+.ts-catrow .ts-tile {
+  grid-row: span 2;
+}
+.ts-catrow .ts-bar {
+  grid-column: 2 / -1;
+  margin-top: 4px;
+  height: 10px;
+}
+.ts-catrow__name {
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- category editor ---- */
+.ts-iconpick {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+.ts-iconpick button {
+  aspect-ratio: 1;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  background: var(--panel);
+  cursor: pointer;
+  border-radius: 50% !important;
+}
+.ts-iconpick button[aria-pressed="true"] {
+  background: var(--panel-tint);
+  border-color: var(--coral);
+  box-shadow: inset 0 -3px 0 0 var(--coral);
+}
+.ts-inline-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-16);
+  background: var(--panel-tint);
+}
+
+/* ---- split editor ---- */
+.ts-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+.ts-seg button {
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 3px 14px;
+  background: var(--panel);
+  color: var(--text-soft);
+  cursor: pointer;
+  border-radius: var(--radius-pill) !important;
+}
+.ts-seg button[aria-pressed="true"] {
+  background: var(--coral);
+  color: var(--on-coral);
+  border-color: var(--coral);
+}
+.ts-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+/* A person's row in 比例 / 指定金額. */
+.ts-share {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: var(--space-4) var(--space-8);
+  align-items: center;
+}
+.ts-share__input {
+  position: relative;
+}
+.ts-share__input .ts-input {
+  padding-left: 34px;
+  text-align: right;
+}
+.ts-share__unit {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-num);
+  font-size: 13px;
+  color: var(--text-soft);
+  pointer-events: none;
+}
+.ts-share__hint {
+  grid-column: 2;
+  text-align: right;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--text-soft);
+}
+/* A line in 依項目. */
+.ts-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  gap: var(--space-8);
+  align-items: center;
+  padding: var(--space-12);
+  background: var(--panel-tint);
+}
+.ts-line__who {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+.ts-line__remove {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-soft);
+  background: var(--panel);
+  cursor: pointer;
+  border-radius: 50% !important;
+}
+.ts-line__remove[disabled] {
+  visibility: hidden;
+}
+.ts-left {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-12);
+  padding: 8px 14px;
+  background: var(--money-owe-fill);
+  color: var(--on-fill);
+  font-size: 14px;
+  border-radius: var(--radius-pill) !important;
+}
+.ts-left .ts-amount {
+  color: inherit;
+}
+.ts-left--ok {
+  background: var(--palm);
+}
+
+/* ---- balances + settle-up ---- */
+.ts-bal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-8) 0;
+}
+.ts-bal + .ts-bal {
+  border-top: 2px dotted var(--line);
+}
+.ts-bal__right {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ts-bal__info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.ts-pill {
+  font-size: 12px;
+  padding: 0 10px;
+  line-height: 22px;
+  color: var(--on-fill);
+  white-space: nowrap;
+  border-radius: var(--radius-pill) !important;
+}
+.ts-pill--owed {
+  background: var(--money-owed-fill);
+}
+.ts-pill--owe {
+  background: var(--money-owe-fill);
+}
+.ts-pill--zero {
+  background: var(--palm);
+}
+/* On a phone the tick and two buddy chips leave no room for the amount on the
+   same line, so it drops under the names; from 520px it sits at the right. */
+.ts-xfer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-4) var(--space-12);
+  align-items: center;
+  padding: var(--space-12);
+  background: var(--panel-tint);
+  transition: opacity 200ms;
+}
+.ts-xfer > .ts-tick {
+  grid-row: span 2;
+}
+.ts-xfer--preview {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+@media (min-width: 520px) {
+  .ts-xfer {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .ts-xfer > .ts-tick {
+    grid-row: auto;
+  }
+}
+.ts-xfer__flow {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) 6px;
+}
+.ts-xfer--done {
+  opacity: 0.6;
+}
+.ts-xfer--done .ts-amount {
+  text-decoration: line-through;
+}
+.ts-arrow {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.ts-tick {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: var(--panel);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  border-radius: 50% !important;
+}
+.ts-tick[aria-checked="true"] {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* ---- sheets + dialogs ---- */
+.ts-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.ts-overlay--center {
+  align-items: center;
+  padding: var(--space-16);
+}
+.ts-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  background: rgba(8, 21, 34, 0.45);
+}
+.ts-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100dvh - 24px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-24) var(--space-20) calc(var(--space-24) + env(safe-area-inset-bottom));
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  animation: ts-rise 220ms ease-out;
+}
+.ts-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  box-sizing: border-box;
+  animation: ts-rise 220ms ease-out;
+}
+/* The tape would be clipped by the sheet's own scroll box; tuck it in. */
+.ts-sheet .ts-tape {
+  left: -8px;
+  top: -14px;
+  width: 64px;
+}
+@media (min-width: 600px) {
+  .ts-overlay {
+    align-items: center;
+    padding: var(--space-24);
+  }
+  .ts-sheet {
+    max-height: calc(100dvh - 48px);
+    padding-bottom: var(--space-24);
+    border-radius: var(--radius-lg) !important;
+  }
+}
+@keyframes ts-rise {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.ts-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  padding-top: var(--space-8);
+}
+.ts-actions > :last-child {
+  margin-left: auto;
+}

@@ -46,12 +46,16 @@ is safe to import unconditionally, and callers check `firebaseReady` first.
 | File | Role |
 |---|---|
 | `src/main.tsx` | Router + basename. Routes are `/` (onboard) and `/:groupId` |
-| `src/pages/TripDebtCalculatorPage.tsx` | Whole UI: onboard, app shell, expense/person modals |
-| `src/features/expense-divider/engine/` | Pure money math — split, balances, settle, currency. Fully unit-tested |
+| `src/pages/TripDebtCalculatorPage.tsx` | Whole UI: onboard, app shell, expense sheet, person dialog |
+| `src/components/` | Sticker pieces the page repeats (taped box, buddy chips, category bubble) and the icon map |
+| `src/features/expense-divider/engine/` | Pure money math — split (incl. 依項目 lines), balances, settle, currency. Fully unit-tested |
+| `src/features/expense-divider/display.ts` | Avatar character and day grouping for the ledger. Unit-tested |
 | `src/features/expense-divider/firebase/` | Firestore bootstrap, groups, memberships, settlements |
 | `src/features/expense-divider/identity.ts` | Per-device identity map in `localStorage` |
-| `src/styles/TripDebtCalculator.css` | `tdt-` prefixed styles, 台南街頭 palette |
-| `src/index.css` | Design tokens inherited from the portfolio repo |
+| `src/styles/sticker.css` | `ts-` components from the 行程表 design system, shared look with trip-schedule |
+| `src/index.css` | 行程表 tokens; light/dark follows the device |
+| `src/assets/icons/` | The design system's eight sticker icons |
+| `docs/specs/` | What a change decided and why — read before reworking the UI |
 | `firestore.rules` · `firestore.indexes.json` · `firebase.json` | Firebase project config |
 
 ## Firebase

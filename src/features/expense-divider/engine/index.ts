@@ -5,6 +5,7 @@ export type {
   Person,
   SplitMethod,
   SplitParticipant,
+  SplitItem,
   Expense,
   Balance,
   Settlement,
@@ -35,7 +36,15 @@ export {
 // symbol/decimals table, multi-currency aware) is the canonical one for
 // engine consumers. money.ts keeps its export for its own tests/internal use.
 export { toCents, fromCents, largestRemainder } from "./money";
+export {
+  PERCENT_DECIMALS,
+  clampPercentInput,
+  isEvenPercentSplit,
+  percentSplitStrings,
+  roundPercent,
+} from "./percent";
 export { computeOwed, deriveWeights } from "./split";
+export { itemizedOwed, itemizedParticipants } from "./items";
 export { computeBalances } from "./balances";
 export { simplifyDebts } from "./settle";
 export { PERCENT_TOLERANCE, expenseSchema, validateExpense } from "./validate";

@@ -44,10 +44,25 @@ export interface SplitParticipant {
   value?: number;
 }
 
+/**
+ * One line of an itemised (依項目) split: what it cost, in minor units of the
+ * expense's currency, and who shares it. Lines only ride along on an "exact"
+ * split, whose participant values are what the lines add up to per person —
+ * see `items.ts`.
+ */
+export interface SplitItem {
+  label: string;
+  amount: Cents;
+  personIds: PersonId[];
+}
+
 export interface Expense {
   id: string;
   description: string;
-  /** Emoji tag for the expense, e.g. from `ICONS` in constants.ts. */
+  /**
+   * Emoji tag written by builds before the sticker UI. No longer set on new
+   * expenses or shown; kept so an edit does not strip it from old ones.
+   */
   icon?: string;
   /** Total amount, integer minor units OF `currency` below, > 0. */
   amount: Cents;
@@ -63,6 +78,12 @@ export interface Expense {
   split: {
     method: SplitMethod;
     participants: SplitParticipant[];
+    /**
+     * Present when the split was entered line by line. The money paths never
+     * read it — `participants` already holds the result — so a build that
+     * predates it still computes the same balances.
+     */
+    items?: SplitItem[];
   };
   createdBy: PersonId;
   /** Epoch ms. */
