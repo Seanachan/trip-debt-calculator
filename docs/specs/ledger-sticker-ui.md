@@ -16,6 +16,7 @@ product.
 | Fonts | Chiron GoRound TC (晉圓體) for words, Fredoka for numbers, from Google Fonts. |
 | Icons | `src/assets/icons/`, copied from trip-schedule. No emoji in the UI chrome. |
 | Navigation | The five views stay. Their tabs are a sticky row of chips under the top bar, words only. The `+` FAB becomes a fixed coral 記一筆 pill: the one primary action of every view. |
+| Leaving a trip | The 旅行分帳 brand links to the trip list (`/new`), as 行程表's brand does; a bare `/` would resume the trip you are in. Inside a trip, a 「＋ 新行程」 button sits next to the room code and opens the same screen with the create form first and focused. Before this, the only way out was a text link at the bottom of 旅伴. |
 | Avatars | `.ts-av`: one character on `sun`. Han names show their last character (阿凱 → 凱), other names their first letter. The device's own buddy reads 你. Stored member colours are no longer shown: buddies are told apart by name. |
 | Categories | The six seeded ids get sticker icons and fills: food → bowl/strawberry, stay → bed/lilac, transit → bus/sky, fun → camera/sun, shopping → bag/palm, other and 未分類 → coin on `panel-tint`. A category a group made itself keeps the emoji it was given, on `panel-tint`: that emoji is the group's content, not chrome. The icon picker only appears for those. |
 | Expense icon | New expenses no longer get a rotating emoji `icon`; an edit keeps whatever an old one had. The row shows its category's tile. |
