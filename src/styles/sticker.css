@@ -1161,3 +1161,37 @@ button.ts-buddy[aria-pressed="true"] {
 .ts-actions > :last-child {
   margin-left: auto;
 }
+
+/* ---- 拍收據: the scan button, and the questions a scan leaves open ---- */
+.ts-scan {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-12);
+}
+.ts-scan .ts-help {
+  margin: 0;
+  flex: 1 1 12em;
+}
+/* Sun, like the remainder bar's "still to do" state, so an open question
+   reads as the thing between you and 儲存. */
+.ts-ask {
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-12) var(--space-16);
+  background: var(--panel-tint);
+  border-left: 4px solid var(--sun);
+  border-radius: var(--radius-md);
+}
+.ts-ask__q {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ts-ask__opts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+}

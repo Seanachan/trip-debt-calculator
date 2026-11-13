@@ -120,6 +120,32 @@ describe("validateExpense with items", () => {
     expect(validateExpense(twice, members)).toContain('item 1 person "K" is duplicated');
   });
 
+  it("accepts a discount line and gives the payer the smaller discount", () => {
+    const lines = [
+      { label: "烤肉", amount: 30000, personIds: ["K", "M", "A"] },
+      { label: "折扣", amount: -1000, personIds: ["K", "M", "A"] },
+    ];
+    // -1000 / 3 leaves a spare unit, which the payer absorbs, as on a positive line.
+    expect(itemizedOwed(lines, "K")).toEqual({ K: 10000 - 333, M: 10000 - 333, A: 10000 - 334 });
+    expect(validateExpense(itemized(lines), members)).toEqual([]);
+  });
+
+  it("rejects a discount that leaves someone below zero", () => {
+    const lines = [
+      { label: "咖啡", amount: 5000, personIds: ["K"] },
+      { label: "折扣", amount: -1000, personIds: ["M"] },
+    ];
+    expect(validateExpense(itemized(lines), members)).toContain(
+      'participant "M" exact value must be a non-negative integer',
+    );
+  });
+
+  it("rejects a zero line", () => {
+    const lines = [...dinner, { label: "贈品", amount: 0, personIds: ["K"] }];
+    const errors = validateExpense(itemized(lines), members);
+    expect(errors.some((e) => e.includes("a line must not be zero"))).toBe(true);
+  });
+
   it("rejects items on anything but an exact split", () => {
     const expense = itemized(dinner);
     expense.split.method = "equal";
