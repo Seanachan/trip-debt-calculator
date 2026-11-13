@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   Category,
@@ -34,10 +34,17 @@ import { avatarChar, groupByDay } from "../features/expense-divider/display";
 import {
   firebaseReady,
   onAccountChange,
+  receiptScanReady,
   signInWithGoogle,
   signOutAccount,
   type AccountInfo,
 } from "../features/expense-divider/firebase/config";
+import {
+  readingToDraft,
+  type ReceiptDraft,
+  type ReceiptQuestion,
+} from "../features/expense-divider/receipt/draft";
+import { ReceiptScanError } from "../features/expense-divider/receipt/errors";
 import {
   listTripMemberships,
   recordTripMembership,
@@ -188,6 +195,36 @@ function clock(ms: number): string {
 /** Strip a typed amount down to digits and one dot. */
 function cleanAmount(raw: string): string {
   return raw.replace(/[^0-9.]/g, "").replace(/^(\d*\.?\d*).*$/, "$1");
+}
+
+/** As `cleanAmount`, keeping a leading minus: a 依項目 line may be a discount. */
+function cleanLineAmount(raw: string): string {
+  const negative = /^\s*[-−]/.test(raw);
+  return (negative ? "-" : "") + cleanAmount(raw);
+}
+
+/** A scan's open question. A line question follows its line by React key, which survives edits. */
+type SheetQuestion =
+  | Exclude<ReceiptQuestion, { kind: "line" }>
+  | (Extract<ReceiptQuestion, { kind: "line" }> & { lineKey: number });
+
+/** Set once this device has seen what 拍收據 does with the photo. */
+const RECEIPT_NOTICE_KEY = "trip-debt:receipt-notice-seen";
+
+function receiptNoticeSeen(): boolean {
+  try {
+    return localStorage.getItem(RECEIPT_NOTICE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markReceiptNoticeSeen(): void {
+  try {
+    localStorage.setItem(RECEIPT_NOTICE_KEY, "1");
+  } catch {
+    // Storage blocked: the notice just shows again next time.
+  }
 }
 
 type ViewName = "overview" | "activity" | "categories" | "people" | "settle";
@@ -721,6 +758,16 @@ const AppScreen = ({
   const [dCategory, setDCategory] = useState<string | undefined>(undefined);
   const [expenseErrors, setExpenseErrors] = useState<string[]>([]);
 
+  // 拍收據 inside the sheet. `sheetSession` changes every time the sheet opens,
+  // so a scan that finishes after the sheet was closed or reopened is dropped
+  // instead of filling a different draft.
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<SheetQuestion[]>([]);
+  const [receiptNoticeOpen, setReceiptNoticeOpen] = useState(false);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
+  const sheetSession = useRef(0);
+
   // Inline "new category" row inside the expense sheet, and the rename/add
   // editor on the 分類 view. Both write through `updateCategories`.
   const [newCatOpen, setNewCatOpen] = useState(false);
@@ -1071,7 +1118,16 @@ const AppScreen = ({
     return Object.fromEntries(ids.map((id, i) => [id, pcts[i]]));
   };
 
+  const resetScan = () => {
+    sheetSession.current += 1;
+    setScanning(false);
+    setScanError(null);
+    setQuestions([]);
+    setReceiptNoticeOpen(false);
+  };
+
   const openAddExpense = () => {
+    resetScan();
     setEditingExpenseId(null);
     setDDesc("");
     setDAmount("");
@@ -1120,6 +1176,7 @@ const AppScreen = ({
       mode = "pct";
     }
 
+    resetScan();
     setEditingExpenseId(expense.id);
     setDDesc(expense.description);
     setDAmount(formatMajor(expense.amount, expense.currency));
@@ -1218,6 +1275,136 @@ const AppScreen = ({
     );
   };
 
+  // ---------- expense sheet: 拍收據 ----------
+
+  const resolveQuestions = (match: (q: SheetQuestion) => boolean) => {
+    setQuestions((prev) => (prev.some(match) ? prev.filter((q) => !match(q)) : prev));
+  };
+
+  const startScan = () => {
+    if (!receiptNoticeSeen()) {
+      setReceiptNoticeOpen(true);
+      return;
+    }
+    receiptInputRef.current?.click();
+  };
+
+  // Clicking the hidden input inside this handler keeps it a user gesture, which
+  // mobile browsers require before they open the camera or photo picker.
+  const confirmReceiptNotice = () => {
+    markReceiptNoticeSeen();
+    setReceiptNoticeOpen(false);
+    receiptInputRef.current?.click();
+  };
+
+  const applyReceiptDraft = (draft: ReceiptDraft) => {
+    const lines = draft.lines.map((line) => ({
+      ...newDraftItem(line.personIds),
+      label: line.label,
+      amount: line.amount,
+    }));
+    setDDesc(draft.description);
+    setDAmount(draft.amount);
+    setDCur(draft.currency);
+    setDCategory(draft.category);
+    setDMode(draft.mode);
+    setDIncluded(Object.fromEntries(memberIds.map((id) => [id, true])));
+    setDItems(lines.length > 0 ? lines : [newDraftItem(memberIds)]);
+    setQuestions(
+      draft.questions.map((q) => (q.kind === "line" ? { ...q, lineKey: lines[q.line].key } : q)),
+    );
+  };
+
+  const handleReceiptFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // so picking the same photo again still fires
+    if (!file) return;
+
+    const session = sheetSession.current;
+    setScanning(true);
+    setScanError(null);
+    setQuestions([]);
+    try {
+      const [{ prepareImage }, { readReceipt }] = await Promise.all([
+        import("../features/expense-divider/receipt/image"),
+        import("../features/expense-divider/receipt/scan"),
+      ]);
+      const reading = await readReceipt(await prepareImage(file), {
+        categories: categories.map((c) => ({ id: c.id, label: c.label })),
+        recentCurrencies: [dCur, ...expenses.map((x) => x.currency).reverse()].filter(
+          (code, i, all) => all.indexOf(code) === i,
+        ),
+      });
+      if (session !== sheetSession.current) return;
+      const result = readingToDraft(reading, {
+        categoryIds: categories.map((c) => c.id),
+        memberIds,
+        fallbackCurrency: dCur,
+      });
+      if (result.ok) {
+        applyReceiptDraft(result.draft);
+      } else {
+        setScanError(result.reason);
+      }
+    } catch (err) {
+      if (session !== sheetSession.current) return;
+      setScanError(
+        err instanceof ReceiptScanError
+          ? err.message
+          : navigator.onLine
+            ? "讀收據失敗，先手動填吧。"
+            : "沒有網路，先手動填吧。",
+      );
+    } finally {
+      if (session === sheetSession.current) setScanning(false);
+    }
+  };
+
+  /** The answers a question offers, each applied to the draft before the question closes. */
+  const questionChoices = (q: SheetQuestion): { label: string; pick: () => void }[] => {
+    switch (q.kind) {
+      case "currency":
+        return q.options.map((o) => ({ label: o.label, pick: () => setDCur(o.currency) }));
+      case "total":
+        return q.options.map((o) => ({ label: o.label, pick: () => setDAmount(o.amount) }));
+      case "line":
+        return q.options.map((o) => ({
+          label: o.label,
+          pick: () => patchItem(q.lineKey, { amount: o.amount }),
+        }));
+      case "doubt":
+        return [];
+    }
+  };
+
+  const questionCard = (q: SheetQuestion) => (
+    <div className="ts-ask ts-soft" key={q.id} role="group" aria-label={q.prompt}>
+      <p className="ts-ask__q">{q.prompt}</p>
+      <div className="ts-ask__opts">
+        {questionChoices(q).map((choice) => (
+          <button
+            key={choice.label}
+            type="button"
+            className="ts-chip ts-soft"
+            onClick={() => {
+              choice.pick();
+              resolveQuestions((open) => open.id === q.id);
+            }}
+          >
+            {choice.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="ts-btn ts-btn--text"
+          onClick={() => resolveQuestions((open) => open.id === q.id)}
+        >
+          {q.kind === "doubt" ? "知道了" : "我自己改"}
+        </button>
+      </div>
+    </div>
+  );
+
   // ---------- expense sheet: what the draft adds up to ----------
 
   const dAmountNumber = Number(dAmount) || 0;
@@ -1242,7 +1429,7 @@ const AppScreen = ({
     for (const item of dItems) {
       if (!touchedItems.includes(item)) continue;
       const n = dItems.indexOf(item) + 1;
-      if (!(toMinor(Number(item.amount) || 0, dCur) > 0)) return `第 ${n} 項還沒填金額。`;
+      if (toMinor(Number(item.amount) || 0, dCur) === 0) return `第 ${n} 項還沒填金額。`;
       if (item.personIds.length === 0) return `第 ${n} 項還沒選誰要分。`;
     }
     return touchedItems.length === 0 ? "至少要有一項。" : null;
@@ -1253,6 +1440,24 @@ const AppScreen = ({
     personIds: item.personIds,
   }));
   const itemsTotalMinor = draftItems.reduce((sum, item) => sum + item.amount, 0);
+
+  // A discount line can push someone below zero; the engine would reject that
+  // on save, so say it in words while there is still something to fix.
+  const itemsIssue =
+    itemProblem ??
+    (() => {
+      const owed = itemizedOwed(draftItems, dPayer);
+      const below = memberIds.find((id) => (owed[id] ?? 0) < 0);
+      return below === undefined
+        ? null
+        : `${faceOf(below).name}分到的變成負的，折扣要分給有點東西的人。`;
+    })();
+
+  // Questions from a scan. A line question only counts while its lines are in
+  // use, and only while its line still exists.
+  const openQuestions = questions.filter(
+    (q) => q.kind !== "line" || (dMode === "items" && dItems.some((item) => item.key === q.lineKey)),
+  );
 
   /** What is left to hand out, in the mode's own unit: minor units, or percentage points. */
   const remaining =
@@ -1272,8 +1477,10 @@ const AppScreen = ({
     (dMode === "equal"
       ? includedIds.length > 0
       : dMode === "items"
-        ? itemProblem === null && remainderClear
+        ? itemsIssue === null && remainderClear
         : splitEntries.length > 0 && remainderClear);
+
+  const canSave = splitValid && openQuestions.length === 0;
 
   const convertHintText = (() => {
     if (dCur === baseCurrency || amountMinor <= 0) return "";
@@ -1325,7 +1532,8 @@ const AppScreen = ({
   })();
 
   const itemsSummary = (() => {
-    const ready = draftItems.filter((item) => item.amount > 0 && item.personIds.length > 0);
+    // Discount lines are negative and count too, or the summary overstates everyone's share.
+    const ready = draftItems.filter((item) => item.amount !== 0 && item.personIds.length > 0);
     if (ready.length === 0) return "";
     const owed = itemizedOwed(ready, dPayer);
     return memberIds
@@ -1341,7 +1549,7 @@ const AppScreen = ({
   })();
 
   const handleSaveExpense = async () => {
-    if (!splitValid) return;
+    if (!canSave) return;
     setExpenseErrors([]);
 
     let split: Expense["split"];
@@ -1940,45 +2148,56 @@ const AppScreen = ({
     ) : dMode === "items" ? (
       <div className="ts-lines">
         {dItems.map((item, i) => (
-          <div className="ts-line ts-soft" key={item.key}>
-            <input
-              className="ts-input ts-soft"
-              value={item.label}
-              onChange={(e) => patchItem(item.key, { label: e.target.value })}
-              placeholder={i === 0 ? "例如：韓牛套餐" : `第 ${i + 1} 項`}
-              aria-label={`第 ${i + 1} 項是什麼`}
-            />
-            <span className="ts-share__input">
-              <span className="ts-share__unit">{symbol}</span>
+          <Fragment key={item.key}>
+            <div className="ts-line ts-soft">
               <input
-                className="ts-input ts-input--num ts-soft"
-                value={item.amount}
-                onChange={(e) => patchItem(item.key, { amount: cleanAmount(e.target.value) })}
-                inputMode="decimal"
-                placeholder="0"
-                aria-label={`第 ${i + 1} 項金額`}
+                className="ts-input ts-soft"
+                value={item.label}
+                onChange={(e) => patchItem(item.key, { label: e.target.value })}
+                placeholder={i === 0 ? "例如：韓牛套餐" : `第 ${i + 1} 項`}
+                aria-label={`第 ${i + 1} 項是什麼`}
               />
-            </span>
-            <button
-              type="button"
-              className="ts-line__remove ts-soft"
-              aria-label={`刪掉第 ${i + 1} 項`}
-              disabled={dItems.length === 1}
-              onClick={() => setDItems((prev) => prev.filter((x) => x.key !== item.key))}
-            >
-              ×
-            </button>
-            <div className="ts-line__who" role="group" aria-label={`第 ${i + 1} 項誰要分`}>
-              {members.map((m) => (
-                <BuddyToggle
-                  key={m.id}
-                  face={faceOf(m.id)}
-                  pressed={item.personIds.includes(m.id)}
-                  onClick={() => toggleItemPerson(item.key, m.id)}
+              <span className="ts-share__input">
+                <span className="ts-share__unit">{symbol}</span>
+                <input
+                  className="ts-input ts-input--num ts-soft"
+                  value={item.amount}
+                  onChange={(e) => {
+                    patchItem(item.key, { amount: cleanLineAmount(e.target.value) });
+                    resolveQuestions((q) => q.kind === "line" && q.lineKey === item.key);
+                  }}
+                  inputMode="decimal"
+                  placeholder="0"
+                  aria-label={`第 ${i + 1} 項金額`}
                 />
-              ))}
+              </span>
+              <button
+                type="button"
+                className="ts-line__remove ts-soft"
+                aria-label={`刪掉第 ${i + 1} 項`}
+                disabled={dItems.length === 1}
+                onClick={() => {
+                  setDItems((prev) => prev.filter((x) => x.key !== item.key));
+                  resolveQuestions((q) => q.kind === "line" && q.lineKey === item.key);
+                }}
+              >
+                ×
+              </button>
+              <div className="ts-line__who" role="group" aria-label={`第 ${i + 1} 項誰要分`}>
+                {members.map((m) => (
+                  <BuddyToggle
+                    key={m.id}
+                    face={faceOf(m.id)}
+                    pressed={item.personIds.includes(m.id)}
+                    onClick={() => toggleItemPerson(item.key, m.id)}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+            {openQuestions
+              .filter((q) => q.kind === "line" && q.lineKey === item.key)
+              .map(questionCard)}
+          </Fragment>
         ))}
         <div className="ts-row">
           <button
@@ -2114,6 +2333,36 @@ const AppScreen = ({
             </button>
 
             <div className="ts-stack">
+              {receiptScanReady && !editingExpenseId && (
+                <div className="ts-scan">
+                  <button
+                    type="button"
+                    className="ts-btn ts-sticker"
+                    onClick={startScan}
+                    disabled={scanning}
+                  >
+                    <Icon name="camera" />
+                    {scanning ? "讀收據中…" : "拍收據"}
+                  </button>
+                  <p className="ts-help">
+                    {scanning ? "要幾秒鐘。" : "拍照或從相簿選，金額和明細會幫你填好。"}
+                  </p>
+                  <input
+                    ref={receiptInputRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(e) => void handleReceiptFile(e)}
+                  />
+                </div>
+              )}
+              {scanError && (
+                <p className="ts-error" role="alert">
+                  {scanError}
+                </p>
+              )}
+              {openQuestions.filter((q) => q.kind === "doubt").map(questionCard)}
+
               <div className="ts-field">
                 <label className="ts-field__name" htmlFor="expense-amount">
                   金額
@@ -2123,7 +2372,10 @@ const AppScreen = ({
                     id="expense-amount"
                     className="ts-input ts-input--big ts-soft"
                     value={dAmount}
-                    onChange={(e) => setDAmount(cleanAmount(e.target.value))}
+                    onChange={(e) => {
+                      setDAmount(cleanAmount(e.target.value));
+                      resolveQuestions((q) => q.kind === "total");
+                    }}
                     inputMode="decimal"
                     placeholder="0"
                     autoFocus={!editingExpenseId}
@@ -2132,7 +2384,10 @@ const AppScreen = ({
                     className="ts-select ts-soft"
                     aria-label="幣別"
                     value={dCur}
-                    onChange={(e) => setDCur(e.target.value as CurrencyCode)}
+                    onChange={(e) => {
+                      setDCur(e.target.value as CurrencyCode);
+                      resolveQuestions((q) => q.kind === "currency");
+                    }}
                   >
                     {CURRENCY_CODES.map((code) => (
                       <option key={code} value={code}>
@@ -2142,6 +2397,9 @@ const AppScreen = ({
                   </select>
                 </div>
                 {convertHintText && <p className="ts-help">{convertHintText}</p>}
+                {openQuestions
+                  .filter((q) => q.kind === "currency" || q.kind === "total")
+                  .map(questionCard)}
               </div>
 
               <label className="ts-field">
@@ -2237,8 +2495,8 @@ const AppScreen = ({
                 ) : (
                   <p className="ts-help">先填上金額，再來分。</p>
                 ))}
-              {dMode === "items" && amountMinor > 0 && itemProblem && touchedItems.length > 0 && (
-                <p className="ts-help">{itemProblem}</p>
+              {dMode === "items" && amountMinor > 0 && itemsIssue && touchedItems.length > 0 && (
+                <p className="ts-help">{itemsIssue}</p>
               )}
 
               {expenseErrors.length > 0 && (
@@ -2247,6 +2505,12 @@ const AppScreen = ({
                     <li key={err}>{err}</li>
                   ))}
                 </ul>
+              )}
+
+              {openQuestions.length > 0 && (
+                <p className="ts-help" role="status">
+                  還有 {openQuestions.length} 個問題要回答，答完才能存。
+                </p>
               )}
 
               <div className="ts-actions">
@@ -2260,10 +2524,66 @@ const AppScreen = ({
                 <button
                   type="button"
                   className="ts-btn ts-btn--primary ts-sticker"
-                  disabled={!splitValid}
+                  disabled={!canSave}
                   onClick={handleSaveExpense}
                 >
                   儲存
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {expenseModalOpen && receiptNoticeOpen && (
+        <div className="ts-overlay ts-overlay--center">
+          <button
+            type="button"
+            className="ts-backdrop"
+            aria-label="關閉"
+            tabIndex={-1}
+            onClick={() => setReceiptNoticeOpen(false)}
+          />
+          <div
+            className="ts-dialog ts-box ts-sticker"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-notice-title"
+          >
+            <h2 className="ts-label" id="receipt-notice-title">
+              <span className="ts-tape" aria-hidden />
+              <Icon name="camera" />
+              拍收據之前
+            </h2>
+            <button
+              type="button"
+              className="ts-close ts-soft"
+              aria-label="關閉"
+              onClick={() => setReceiptNoticeOpen(false)}
+            >
+              ×
+            </button>
+            <div className="ts-stack">
+              <p className="ts-body">
+                照片會送到 Google 的 Gemini 辨識。用的是免費版，Google 可能拿照片和辨識結果改進他們的產品，也可能有人工看過。
+              </p>
+              <p className="ts-body">
+                照片辨識完就丟掉，不會存進帳目。收據上如果有卡號末四碼這類資料，介意的話就手動記。
+              </p>
+              <div className="ts-actions">
+                <button
+                  type="button"
+                  className="ts-btn ts-btn--text"
+                  onClick={() => setReceiptNoticeOpen(false)}
+                >
+                  先不要
+                </button>
+                <button
+                  type="button"
+                  className="ts-btn ts-btn--primary ts-sticker"
+                  onClick={confirmReceiptNotice}
+                >
+                  知道了，拍照
                 </button>
               </div>
             </div>

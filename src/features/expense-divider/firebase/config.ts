@@ -5,7 +5,7 @@
 // .env.local). Every export here is safe to import unconditionally; callers
 // must check `firebaseReady` before relying on `db` / `auth` being defined.
 
-import { initializeApp } from "firebase/app";
+import { initializeApp, type FirebaseApp } from "firebase/app";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import {
   GoogleAuthProvider,
@@ -30,11 +30,26 @@ const appId: string | undefined = import.meta.env.VITE_FIREBASE_APP_ID;
 /** True when the minimum config needed to initialize Firebase is present. */
 export const firebaseReady = Boolean(apiKey && projectId && appId);
 
+/**
+ * Site key for App Check, which Firebase AI Logic requires. Like the values
+ * above it is a public identifier: the reCAPTCHA key is bound to our domain in
+ * the Google Cloud console, so a copy of it is no use elsewhere.
+ */
+export const recaptchaEnterpriseKey: string | undefined = import.meta.env
+  .VITE_RECAPTCHA_ENTERPRISE_KEY;
+
+/**
+ * 拍收據 is offered only when both Firebase and App Check are configured, so a
+ * build without the key behaves exactly as before the feature existed.
+ */
+export const receiptScanReady = firebaseReady && Boolean(recaptchaEnterpriseKey);
+
+let app: FirebaseApp | undefined;
 let db: Firestore | undefined;
 let auth: Auth | undefined;
 
 if (apiKey && projectId && appId) {
-  const app = initializeApp({
+  app = initializeApp({
     apiKey,
     authDomain,
     projectId,
@@ -46,7 +61,7 @@ if (apiKey && projectId && appId) {
   auth = getAuth(app);
 }
 
-export { db, auth };
+export { app, db, auth };
 
 /**
  * Ensure there is a signed-in Firebase user and return their uid, signing in

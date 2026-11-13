@@ -8,9 +8,15 @@ const splitParticipantSchema = z.object({
   value: z.number().optional(),
 });
 
+// A line may be negative: a discount on the receipt, shared like any other
+// line. Each person's total must still be >= 0, which the exact-split check
+// on `participants` enforces, since participants must equal the lines' totals.
 const splitItemSchema = z.object({
   label: z.string(),
-  amount: z.number().int().positive(),
+  amount: z
+    .number()
+    .int()
+    .refine((n) => n !== 0, "a line must not be zero"),
   personIds: z.array(z.string().min(1)).min(1),
 });
 
