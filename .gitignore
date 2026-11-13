@@ -28,3 +28,6 @@ dist-ssr
 # Firebase CLI
 .firebase/
 firebase-debug.log
+
+# Local emulator data (yarn dev), kept between runs
+.emulator-data/

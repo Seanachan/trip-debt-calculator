@@ -6,9 +6,10 @@
 // must check `firebaseReady` before relying on `db` / `auth` being defined.
 
 import { initializeApp, type FirebaseApp } from "firebase/app";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { connectFirestoreEmulator, getFirestore, type Firestore } from "firebase/firestore";
 import {
   GoogleAuthProvider,
+  connectAuthEmulator,
   getAuth,
   linkWithPopup,
   onAuthStateChanged,
@@ -44,6 +45,16 @@ export const recaptchaEnterpriseKey: string | undefined = import.meta.env
  */
 export const receiptScanReady = firebaseReady && Boolean(recaptchaEnterpriseKey);
 
+/**
+ * `yarn dev` sets this and starts the Auth and Firestore emulators, so trying
+ * things out locally never writes to the live database (`yarn dev:live` does).
+ * Dead code in a production build. Ports match `firebase.json` → emulators.
+ * 拍收據 still calls the real Gemini: AI Logic has no emulator, and reading a
+ * receipt writes nothing until the expense is saved, which goes to the emulator.
+ */
+export const usingEmulators =
+  import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === "true";
+
 let app: FirebaseApp | undefined;
 let db: Firestore | undefined;
 let auth: Auth | undefined;
@@ -59,6 +70,12 @@ if (apiKey && projectId && appId) {
   });
   db = getFirestore(app);
   auth = getAuth(app);
+  if (usingEmulators) {
+    connectFirestoreEmulator(db, "127.0.0.1", 8080);
+    // Leaves the SDK's "Running in emulator mode" banner on, so a local tab is
+    // never mistaken for the live site.
+    connectAuthEmulator(auth, "http://127.0.0.1:9099");
+  }
 }
 
 export { app, db, auth };
