@@ -23,8 +23,18 @@ Two consequences to respect when editing:
 ```sh
 cp .env.example .env.local   # fill from Firebase console → Project settings → General
 yarn install
-yarn dev
+yarn dev                     # needs the Firebase CLI and Java 21+
 ```
+
+`yarn dev` runs against **local emulators**, not the live database: Auth and Firestore start on
+`127.0.0.1` with `firestore.rules` applied, Vite connects to them, and the page shows a "Running in
+emulator mode" banner. Trips made there live in `.emulator-data/` (gitignored), saved when you stop
+with Ctrl+C and loaded on the next run; delete the folder to start empty. Browse or edit the data at
+<http://127.0.0.1:4000>. 拍收據 still calls the real Gemini, since AI Logic has no emulator; the
+expense it fills in is saved locally like any other.
+
+`yarn dev:live` is the old behaviour, against the live database every traveller uses. Only for
+checking something the emulators cannot show.
 
 The `VITE_FIREBASE_*` values are public client identifiers, not secrets — access control lives in
 `firestore.rules` (signed-in requests only), not in hiding them. CI reads them from repository
@@ -41,7 +51,8 @@ Logic, which requires App Check). Without it the button is hidden. The one-time 
 
 | | |
 |---|---|
-| `yarn dev` | dev server |
+| `yarn dev` | dev server on local Auth + Firestore emulators (UI at `127.0.0.1:4000`) |
+| `yarn dev:live` | dev server on the live database |
 | `yarn build` | `tsc -b && vite build` |
 | `yarn lint` · `yarn test` | gates CI enforces before deploying |
 
@@ -61,7 +72,7 @@ Logic, which requires App Check). Without it the button is hidden. The one-time 
 | `src/index.css` | 行程表 tokens; light/dark follows the device |
 | `src/assets/icons/` | The design system's eight sticker icons |
 | `docs/specs/` | What a change decided and why — read before reworking the UI |
-| `firestore.rules` · `firestore.indexes.json` · `firebase.json` | Firebase project config |
+| `firestore.rules` · `firestore.indexes.json` · `firebase.json` · `.firebaserc` | Firebase project config and emulator ports |
 
 ## Firebase
 

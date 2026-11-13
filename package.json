@@ -5,7 +5,8 @@
   "type": "module",
   "packageManager": "yarn@4.13.0",
   "scripts": {
-    "dev": "vite",
+    "dev": "firebase emulators:exec --ui 'VITE_USE_EMULATORS=true vite' --only auth,firestore --import .emulator-data --export-on-exit",
+    "dev:live": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
