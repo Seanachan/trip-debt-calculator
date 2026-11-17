@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
@@ -32,6 +32,7 @@ import {
 import { CATEGORY_ICONS } from "../features/expense-divider/constants";
 import { avatarChar, groupByDay } from "../features/expense-divider/display";
 import {
+  currentUid,
   firebaseReady,
   onAccountChange,
   receiptScanReady,
@@ -57,6 +58,12 @@ import {
   listJoinedGroupIds,
   saveIdentity,
 } from "../features/expense-divider/identity";
+import { memberForUid, memberNamed } from "../features/expense-divider/join";
+import {
+  currentBrowser,
+  homeScreenTip,
+  withOpenExternalBrowser,
+} from "../features/expense-divider/homeScreen";
 import { Icon } from "../components/Icon";
 import { categoryLook, isBuiltInCategory, type IconName } from "../components/icons";
 import {
@@ -224,6 +231,25 @@ function markReceiptNoticeSeen(): void {
     localStorage.setItem(RECEIPT_NOTICE_KEY, "1");
   } catch {
     // Storage blocked: the notice just shows again next time.
+  }
+}
+
+/** Set once this device closed the 「加到主畫面」 tip. */
+const HOME_TIP_KEY = "trip-debt:home-tip-closed";
+
+function homeTipClosed(): boolean {
+  try {
+    return localStorage.getItem(HOME_TIP_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markHomeTipClosed(): void {
+  try {
+    localStorage.setItem(HOME_TIP_KEY, "1");
+  } catch {
+    // Storage blocked: the tip just shows again next time.
   }
 }
 
@@ -527,6 +553,9 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
   };
 
   const signedIn = account !== null && !account.anonymous;
+  // Popup sign-in cannot report back to an iOS Home Screen app, and a redirect
+  // lands in Safari's storage instead, so the app sends people to Safari.
+  const [standalone] = useState(() => currentBrowser().standalone);
 
   const pastTripsBox = pastTrips && pastTrips.length > 0 && (
     <Box label="你的行程" icon="buddy" labelId="past-trips">
@@ -567,7 +596,9 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
             <p className="ts-help">
               {signedIn
                 ? "已登入，行程會跟著帳號走。"
-                : "行程只記在這台裝置上。用 Google 登入，換手機也找得到。"}
+                : standalone
+                  ? "行程只記在這個圖示裡。要用 Google 登入，請在 Safari 打開。"
+                  : "行程只記在這台裝置上。用 Google 登入，換手機也找得到。"}
             </p>
             {signedIn ? (
               <button
@@ -578,7 +609,7 @@ const OnboardScreen = ({ onNavigate }: { onNavigate: (groupId: string) => void }
               >
                 登出
               </button>
-            ) : (
+            ) : standalone ? null : (
               <button
                 type="button"
                 className="ts-btn ts-btn--sm ts-sticker"
@@ -712,7 +743,21 @@ const AppScreen = ({
     deleteExpense,
   } = useExpenseGroup(groupId);
 
-  const [identity, setIdentity] = useState(() => getIdentity(groupId));
+  const [storedIdentity, setIdentity] = useState(() => getIdentity(groupId));
+  // Set by 「換人」, so this sign-in is not recognised straight back into the
+  // person it just stepped away from.
+  const [skipRecognition, setSkipRecognition] = useState(false);
+  // A sign-in that already is a member (a Google account on a new device, a
+  // browser whose identity map was cleared) goes straight in.
+  const recognized =
+    storedIdentity || skipRecognition || loading ? undefined : memberForUid(members, currentUid());
+  const identity = useMemo(
+    () => storedIdentity ?? (recognized ? { personId: recognized.id, name: recognized.name } : null),
+    [storedIdentity, recognized],
+  );
+  useEffect(() => {
+    if (recognized) saveIdentity(groupId, recognized.id, recognized.name);
+  }, [groupId, recognized]);
   const [view, setView] = useState<ViewName>("overview");
   const [dayFilter, setDayFilter] = useState<string | null>(null);
   const dayTabsRef = useRef<HTMLDivElement>(null);
@@ -741,6 +786,15 @@ const AppScreen = ({
   const [joinName, setJoinName] = useState("");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  /** The member a newcomer's typed name already belongs to, while we ask. */
+  const [sameNameAs, setSameNameAs] = useState<Person | null>(null);
+
+  // 加到主畫面 tip, decided once per page load
+  const [homeTip, setHomeTip] = useState(() => (homeTipClosed() ? null : homeScreenTip(currentBrowser())));
+  const closeHomeTip = () => {
+    markHomeTipClosed();
+    setHomeTip(null);
+  };
 
   // expense sheet
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
@@ -891,8 +945,17 @@ const AppScreen = ({
   const tripName = group.name || "我的行程";
 
   if (!identity) {
-    const handleJoinHere = async (e: FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
+    // Someone already in the trip, on a browser that does not know them yet:
+    // only this device's identity map changes, no member is written.
+    const enterAs = (person: Person) => {
+      saveIdentity(groupId, person.id, person.name);
+      writeLastGroupId(groupId);
+      // The same account index a fresh join writes, so a Google account finds the trip.
+      recordTripMembership(groupId).catch(() => undefined);
+      setIdentity({ personId: person.id, name: person.name });
+    };
+
+    const joinAsNew = async () => {
       setJoining(true);
       setJoinError(null);
       try {
@@ -908,36 +971,95 @@ const AppScreen = ({
       }
     };
 
+    const handleJoinHere = (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const existing = memberNamed(members, joinName);
+      if (existing) {
+        setSameNameAs(existing);
+        return;
+      }
+      void joinAsNew();
+    };
+
+    const hasMembers = members.length > 0;
+
     return (
       <Frame>
         <div className="ts-hero">
           <h1 className="ts-h1">加入「{tripName}」</h1>
           <p className="ts-body">
-            {members.length > 0
-              ? `${members.map((m) => m.name).join("、")} 已經在這趟行程裡了。`
-              : "填上名字就能一起記帳。"}
+            {hasMembers ? "已經在名單上的話，點你的名字就好。" : "填上名字就能一起記帳。"}
           </p>
         </div>
-        <Box label="你是誰？" icon="buddy" labelId="join-here">
-          <form className="ts-stack" onSubmit={handleJoinHere}>
-            <label className="ts-field">
-              <span className="ts-field__name">你的名字</span>
-              <input
-                className="ts-input ts-soft"
-                value={joinName}
-                onChange={(e) => setJoinName(e.target.value)}
-                placeholder="旅伴會看到這個名字"
-                autoFocus
-              />
-            </label>
-            {joinError && <p className="ts-error">{joinError}</p>}
-            <div className="ts-row ts-row--end">
-              <button type="submit" className="ts-btn ts-btn--primary ts-sticker" disabled={joining}>
-                {joining ? "加入中…" : "加入行程"}
-              </button>
-            </div>
-          </form>
-        </Box>
+        <div className="ts-sections">
+          {hasMembers && (
+            <Box label="你是誰？" icon="buddy" labelId="join-pick">
+              <div className="ts-chips ts-chips--wrap">
+                {members.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className="ts-buddy ts-soft"
+                    onClick={() => enterAs(m)}
+                  >
+                    <span className="ts-av" aria-hidden>
+                      {avatarChar(m.name)}
+                    </span>
+                    <span className="ts-buddy__name">我是{m.name}</span>
+                  </button>
+                ))}
+              </div>
+            </Box>
+          )}
+          <Box label={hasMembers ? "新來的？" : "你是誰？"} icon="buddy" labelId="join-here">
+            {sameNameAs ? (
+              <div className="ts-ask" role="group" aria-labelledby="join-same-name">
+                <p className="ts-ask__q" id="join-same-name">
+                  已經有{sameNameAs.name}了，是你嗎？
+                </p>
+                <div className="ts-ask__opts">
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--primary ts-sticker"
+                    onClick={() => enterAs(sameNameAs)}
+                  >
+                    是我
+                  </button>
+                  <button
+                    type="button"
+                    className="ts-btn ts-sticker"
+                    onClick={() => {
+                      setSameNameAs(null);
+                      void joinAsNew();
+                    }}
+                  >
+                    不是，我是另一個人
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form className="ts-stack" onSubmit={handleJoinHere}>
+                <label className="ts-field">
+                  <span className="ts-field__name">你的名字</span>
+                  <input
+                    className="ts-input ts-soft"
+                    value={joinName}
+                    onChange={(e) => setJoinName(e.target.value)}
+                    placeholder="旅伴會看到這個名字"
+                    // With names to tap, a focused field would open the keyboard over them.
+                    autoFocus={!hasMembers}
+                  />
+                </label>
+                {joinError && <p className="ts-error">{joinError}</p>}
+                <div className="ts-row ts-row--end">
+                  <button type="submit" className="ts-btn ts-btn--primary ts-sticker" disabled={joining}>
+                    {joining ? "加入中…" : "加入行程"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </Box>
+        </div>
       </Frame>
     );
   }
@@ -946,6 +1068,15 @@ const AppScreen = ({
 
   const me = identity.personId;
   const nameOf = (id: string): string => members.find((m) => m.id === id)?.name ?? "?";
+
+  /** 「換人」: forget who this device is in this trip and show the join screen. Nothing in the trip changes. */
+  const switchPerson = () => {
+    clearIdentity(groupId);
+    setSkipRecognition(true);
+    setSameNameAs(null);
+    setJoinName("");
+    setIdentity(null);
+  };
 
   /** How a buddy appears on this device: the device's own one reads 你. */
   const faceOf = (id: string): BuddyFace => {
@@ -1807,8 +1938,31 @@ const AppScreen = ({
   // ---------- views ----------
 
   const myKind = balanceKind(myBalance.net);
+  const homeTipBox = homeTip && (
+    <Box label="加到主畫面" icon="check" labelId="home-tip">
+      <button type="button" className="ts-close ts-soft" aria-label="關閉" onClick={closeHomeTip}>
+        ×
+      </button>
+      {homeTip === "line" ? (
+        <div className="ts-stack">
+          <p className="ts-body">LINE 裡不能加到主畫面。先用 Safari 打開，再點 分享 → 加入主畫面，下次一點圖示就開。</p>
+          <div className="ts-row">
+            <a className="ts-btn ts-btn--primary ts-sticker" href={withOpenExternalBrowser(window.location.href)}>
+              用 Safari 打開
+            </a>
+          </div>
+        </div>
+      ) : (
+        <p className="ts-body">
+          點 Safari 的 分享 → 加入主畫面，下次一點圖示就開。第一次打開圖示時，再點一次你的名字。
+        </p>
+      )}
+    </Box>
+  );
+
   const overview = (
     <div className="ts-sections">
+      {homeTipBox}
       <div className="ts-stats">
         <div className="ts-stat ts-stat--wide ts-sticker">
           <div className="ts-money">
@@ -2053,7 +2207,10 @@ const AppScreen = ({
           </div>
         </div>
       </Box>
-      <div className="ts-row ts-row--end">
+      <div className="ts-row ts-row--between">
+        <button type="button" className="ts-btn ts-btn--text" onClick={switchPerson}>
+          不是{nameOf(me)}？換人
+        </button>
         <button type="button" className="ts-btn ts-btn--text" onClick={onNewTrip}>
           開一趟新行程
         </button>

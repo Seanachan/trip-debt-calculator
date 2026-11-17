@@ -68,6 +68,8 @@ Logic, which requires App Check). Without it the button is hidden. The one-time 
 | `src/features/expense-divider/firebase/` | Firestore bootstrap, groups, memberships, settlements |
 | `src/features/expense-divider/receipt/` | 拍收據: what the model must return, turning it into a draft plus open questions (unit-tested), image prep, the Gemini call |
 | `src/features/expense-divider/identity.ts` | Per-device identity map in `localStorage` |
+| `src/features/expense-divider/join.ts` · `homeScreen.ts` | Who a visitor is on the join screen; which 「加到主畫面」 tip and manifest a browser gets. Unit-tested |
+| `public/manifest*.webmanifest` · `public/icons/` | Add to Home Screen: one manifest for iOS, one Chrome can install; the coin icon (`icons/icon.svg` is the source) |
 | `src/styles/sticker.css` | `ts-` components from the 行程表 design system, shared look with trip-schedule |
 | `src/index.css` | 行程表 tokens; light/dark follows the device |
 | `src/assets/icons/` | The design system's eight sticker icons |

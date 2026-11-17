@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!-- Add to Home Screen. The manifest has no start_url on purpose: the icon
+         opens the trip it was added from. docs/specs/join-and-home-screen.md -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="旅行分帳" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="旅行分帳 — 旅途中隨手記一筆，誰欠誰一看就懂，回家一鍵結清。" />
     <meta name="theme-color" content="#fffaf0" media="(prefers-color-scheme: light)" />
