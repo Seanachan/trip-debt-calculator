@@ -81,6 +81,14 @@ if (apiKey && projectId && appId) {
 export { app, db, auth };
 
 /**
+ * The uid signed in right now, or null. Not reactive: read it once the trip's
+ * data has loaded, by which point `ensureAuth` has run.
+ */
+export function currentUid(): string | null {
+  return auth?.currentUser?.uid ?? null;
+}
+
+/**
  * Ensure there is a signed-in Firebase user and return their uid, signing in
  * anonymously if nobody is signed in yet. Throws when Firebase isn't
  * configured — callers should check `firebaseReady` first.
